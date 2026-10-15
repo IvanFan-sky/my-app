@@ -5,6 +5,7 @@ import com.example.myapp.common.BizException;
 import com.example.myapp.common.ErrorCode;
 import com.example.myapp.dto.LoginForm;
 import com.example.myapp.dto.LoginResponse;
+import com.example.myapp.cache.UserCache;
 import com.example.myapp.dto.RegisterForm;
 import com.example.myapp.dto.UserVO;
 import com.example.myapp.entity.User;
@@ -38,6 +39,7 @@ public class AuthServiceImpl implements AuthService {
     private final UserService userService;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider tokenProvider;
+    private final UserCache userCache;
 
     @Override
     public LoginResponse login(LoginForm form) {
@@ -89,6 +91,10 @@ public class AuthServiceImpl implements AuthService {
 
         try {
             userService.save(user);
+            // 注册是 UserController 之外的第二条写路径，同样要失效缓存。
+            // 新增时该 id 还不可能有缓存，但统一失效比依赖「新增不可能命中」的推理更稳：
+            // 将来若在这个方法里加了别的写操作，不会因为漏掉这行而留下脏缓存。
+            userCache.evict(user.getId());
         } catch (DuplicateKeyException e) {
             // 走到这里说明用户名被占：要么并发抢注，要么撞上已被逻辑删除的同名用户。
             // 对客户端而言两者的处理方式一样，都是「换个用户名」。

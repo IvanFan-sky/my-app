@@ -1,0 +1,71 @@
+/* ============================================================
+   全局设计令牌
+   ------------------------------------------------------------
+   为什么要有这个文件：品牌色、卡片圆角、阴影、按钮尺寸这些值，
+   如果分别写在登录页、注册页、用户管理页里，改主题时一定会漏掉某一处，
+   最后三个页面看起来像三个产品。集中在这里，各页面只引用变量，不写字面值。
+
+   命名约定：--brand-* 是品牌色，--app-* 是本项目自己的尺寸令牌，
+   其余以 --el- 开头的是 Element Plus 自带的变量，直接复用不重复定义。
+   ============================================================ */
+:root {
+  /* 品牌主色：品牌区深色渐变的起点 / 终点，以及高亮色 */
+  --brand-from: #1f2a5a;
+  --brand-to: #2b3f8f;
+  --brand-accent: #6d8bff;
+
+  /* 卡片：与登录/注册页的卡片保持同一规格 */
+  --app-radius-card: 20px;
+  --app-radius-inner: 12px;
+  --app-shadow-card:
+    0 1px 2px rgba(16, 24, 40, 0.06),
+    0 24px 60px -20px rgba(16, 24, 40, 0.28);
+  /* 列表页卡片比登录卡片轻一档：一页里会出现多张，用同样重的阴影会显得浮 */
+  --app-shadow-panel:
+    0 1px 2px rgba(16, 24, 40, 0.05),
+    0 10px 28px -14px rgba(16, 24, 40, 0.18);
+
+  /* 主按钮：与应用主色渐变一致 */
+  --app-btn-height: 42px;
+  --app-btn-radius: 9px;
+  --app-gradient-primary: linear-gradient(100deg, var(--brand-to), var(--brand-accent));
+
+  /* 内容区最大宽度，让列表页与登录页的视觉重心一致 */
+  --app-content-max: 1180px;
+}
+
+/* 主色按钮：登录/注册页的提交按钮与用户管理页的新增按钮共用同一套观感。
+   类名带 app- 前缀，避免污染 Element Plus 自身的 .el-button 样式。 */
+.app-btn-primary.el-button--primary {
+  border: none;
+  border-radius: var(--app-btn-radius);
+  background: var(--app-gradient-primary);
+  /* 只过渡需要的属性，不用 transition: all */
+  transition: box-shadow 0.25s ease, transform 0.12s ease;
+}
+
+.app-btn-primary.el-button--primary:not(.is-loading):hover {
+  box-shadow: 0 10px 22px -8px rgba(43, 63, 143, 0.6);
+}
+
+.app-btn-primary.el-button--primary:not(.is-loading):active {
+  transform: translateY(1px);
+}
+
+/* 页面卡片：统一圆角与阴影，去掉 Element Plus 默认那圈边框的突兀感 */
+.app-panel.el-card {
+  border-radius: var(--app-radius-inner);
+  border: 1px solid var(--el-border-color-lighter);
+  box-shadow: var(--app-shadow-panel);
+}
+
+/* 尊重「减少动态效果」的系统设置 */
+@media (prefers-reduced-motion: reduce) {
+  .app-btn-primary.el-button--primary {
+    transition: none;
+  }
+
+  .app-btn-primary.el-button--primary:not(.is-loading):active {
+    transform: none;
+  }
+}

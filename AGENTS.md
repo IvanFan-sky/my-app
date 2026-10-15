@@ -172,6 +172,7 @@ backend/src/main/java/com/example/myapp/
 ├── config/                 # MybatisPlusConfig（分页插件）、WebMvcConfig（鉴权拦截器注册）、
 │                           # JwtProperties（app.jwt.* 配置）、SecurityBeanConfig（PasswordEncoder）
 ├── controller/             # 只做参数校验与编排，不写业务逻辑
+├── cache/                  # UserCache（Redis 缓存，必须容忍 Redis 故障）
 ├── dto/                    # 对外请求体与响应体（Form / VO），不暴露 entity
 ├── entity/                 # 与数据库表一一对应
 ├── mapper/                 # 继承 BaseMapper，复杂 SQL 放 resources/mapper/*.xml
@@ -182,6 +183,7 @@ backend/src/main/java/com/example/myapp/
 frontend/src/
 ├── api/          # http.ts（axios 实例 + 拦截器）、auth.ts（登录/注册接口）、user.ts（接口定义）
 ├── components/   # AuthLayout.vue（登录/注册共用外壳与共享表单样式）、FieldIcon.vue（内联 SVG 图标）
+├── styles/       # tokens.css（全局设计令牌：品牌色、圆角、阴影、主按钮渐变）
 ├── router/       # 路由表 + 未登录守卫（public 页面：/login、/register）
 ├── stores/       # Pinia store（setup 写法），auth.ts 持有登录态
 ├── views/        # 页面组件，一页一文件（LoginView / RegisterView / HomeView）
@@ -193,6 +195,10 @@ frontend/src/
 > **登录页与注册页的样式为什么集中在 `components/AuthLayout.vue`**：两个页面若各自
 > 写一套，色板、圆角、按钮、间距会各自漂移，最后看起来像两个产品。外壳与共享表单样式
 > 收在 AuthLayout 里，「设计语言统一」由结构保证而不是靠人同步。
+> **设计令牌（品牌色、卡片圆角、阴影、主按钮渐变）统一放在 `src/styles/tokens.css` 的 `:root`**，
+> 登录页、注册页、用户管理页都只引用变量、不写字面值。某一页需要新颜色/新尺寸时，
+> 先往 tokens.css 加，不要在页面里就地写死 —— 否则「三个页面像三个产品」会从这里开始。
+>
 > 其中共享表单样式是**非 scoped** 的（表单由父组件插槽传入，scoped 样式碰不到插槽内容），
 > 所以类名一律带 `auth-` / `field-` 前缀避免全局污染 —— 这是有意为之，不是漏写 scoped。
 
@@ -276,9 +282,56 @@ frontend/src/
   查重（给出友好提示）+ 捕获 `DuplicateKeyException`（保证正确性），见
   `AuthServiceImpl.register`。`docs/verify-login.ps1` 第 12c 组专门验这个边界。
 
+### 用户接口
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/users` | 分页查询。参数 `keyword`（**同时匹配用户名与邮箱**）、`current`、`size` |
+| GET | `/api/users/stats` | 概览统计：用户总数 + 缓存命中/未命中/命中率 |
+| GET | `/api/users/{id}` | 用户详情，**走 Redis 缓存** |
+| POST | `/api/users` | 新增，`password` 必填 |
+| PUT | `/api/users/{id}` | 修改，`password` 留空表示不改密码 |
+| DELETE | `/api/users/{id}` | 逻辑删除（只置 `deleted = 1`） |
+
+`keyword` 的邮箱匹配**没有索引**（`sys_user` 只有 username 唯一索引与 created_at 普通索引），
+会走全表扫描。当前数据量可接受；量大了应给 email 建索引或改前缀匹配。
+
 ---
 
-## 8. 数据库约定
+## 8. 缓存约定（Redis）
+
+**缓存什么**：按主键缓存 `UserVO`（**不是 `User` 实体** —— 实体带 `passwordHash`，
+而 Redis 通常被当低安全等级存储，不能把密码哈希放进去）。
+
+| 项 | 值 |
+|---|---|
+| key | `my-app:user:{id}` |
+| value | `UserVO` 的 JSON（含 `@class`，人可读） |
+| TTL | 10 分钟 |
+| 读路径 | `GET /api/users/{id}`、`AuthInterceptor`（**每个受保护请求都走它**，收益最大） |
+| 失效 | `UserController` 的 create / update / delete，以及 `AuthServiceImpl.register` |
+
+**四条必须遵守的约定**：
+
+1. **任何写用户的地方都要调 `userCache.evict(id)`。** 漏掉的后果不是「数据略旧」，
+   而是 `AuthInterceptor` 从缓存读到已删除用户、继续放行其旧令牌 ——
+   **这是权限漏洞，不是缓存脏读**。`docs/verify-login.ps1` 有对应断言。
+2. **缓存必须容忍 Redis 故障。** `UserCache` 里所有 Redis 操作都包了 try/catch，
+   失败只记 WARN 并回源数据库。Redis 挂了用户管理必须照常可用，已实测。
+   新增缓存方法时不要把这层保护去掉。
+3. **只按 id 缓存，不要缓存分页列表。** 列表 key 要拼关键字/页码/每页条数，
+   组合会爆炸，且任一条用户变动就得整片失效，极易返回脏数据。
+4. **`RedisConfig` 里的 `activateDefaultTyping` 不能删。** 不开启时 JSON 里没有
+   `@class`，反序列化只能得到 `LinkedHashMap`，于是缓存**key 正常、TTL 正常、
+   不报任何错，但永远命中不了**（命中率一直是 0%）。这类故障极难排查 ——
+   `UserCache.get()` 现在会在类型不符时打 ERROR，看到了就说明这里被改坏了。
+
+> 缓存统计（`/api/users/stats`）来自**进程内计数器，重启后端会归零**，
+> 它不是持久化指标，用途是让人一眼看出缓存有没有真的在起作用。
+
+---
+
+## 9. 数据库约定
 
 - 库名 `my_app`，字符集 `utf8mb4` / `utf8mb4_general_ci`（不要用 `utf8`，它存不了 emoji）。
 - 引擎统一 InnoDB。
@@ -293,7 +346,7 @@ frontend/src/
 
 ---
 
-## 9. 配置与密钥
+## 10. 配置与密钥
 
 - 数据库密码**不进版本库**。优先级：环境变量 `DB_PASSWORD` >
   `application-local.yml`（已在 `.gitignore` 里）。
@@ -315,7 +368,7 @@ frontend/src/
 
 ---
 
-## 10. 已知环境坑（都是实际踩到过的）
+## 11. 已知环境坑（都是实际踩到过的）
 
 1. **Maven 本地仓库曾有一批全为空字节的损坏 POM**（2026/10/12 一次中断的下载所致），
    会让 Spring Boot 3.5.16 项目直接无法构建。已修复，清单与脚本留在 `docs/`：
@@ -437,7 +490,7 @@ frontend/src/
 
 ---
 
-## 11. 改动前必做（给 AI agent 的工作约定）
+## 12. 改动前必做（给 AI agent 的工作约定）
 
 ### 每次改完代码，按下表验证
 
@@ -458,9 +511,9 @@ frontend/src/
 - **不要在实体上加 `@TableField(fill=...)`** 来接管时间字段，除非同时提供 `MetaObjectHandler`
   并说明理由 —— 当前设计让数据库负责时间。
 - **不要把分页改成「查全表再切页」**，也不要在移除分页插件的情况下改分页代码。
-- **不要提交密钥**。新增配置项一律走环境变量，并在第 9 节登记。
+- **不要提交密钥**。新增配置项一律走环境变量，并在第 10 节登记。
 - **改数据库结构时同步更新 `sql/init.sql`**，并在提交说明里写清影响。
-- 新增接口后更新第 7 节；新增环境相关坑后更新第 10 节。本文件随代码一起演进。
+- 新增接口后更新第 7 节；新增环境相关坑后更新第 11 节。本文件随代码一起演进。
 
 ### 提交信息
 

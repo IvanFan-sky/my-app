@@ -1,7 +1,7 @@
 package com.example.myapp.security;
 
 import com.example.myapp.common.ErrorCode;
-import com.example.myapp.entity.User;
+import com.example.myapp.dto.UserVO;
 import com.example.myapp.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -22,13 +22,18 @@ import java.nio.charset.StandardCharsets;
  *
  * <p>三个刻意为之的设计：
  * <ol>
- *   <li><b>令牌有效 ≠ 允许访问</b>。解析出 uid 后仍会查一次库，确认用户还存在且未被
- *       逻辑删除。否则一个已删除用户手里的旧令牌，在有效期内可以一直用。</li>
+ *   <li><b>令牌有效 ≠ 允许访问</b>。解析出 uid 后仍要确认用户还存在且未被逻辑删除。
+ *       否则一个已删除用户手里的旧令牌，在有效期内可以一直用。</li>
+ *   <li><b>这个确认走 Redis 缓存</b>（{@code getUserVoById}），不是每次都查库。
+ *       这里是全项目最热的读路径 —— 每个受保护请求都会经过它，
+ *       原先每请求一次 {@code SELECT} 是纯粹的浪费。缓存失效由 UserController 的
+ *       三个写操作负责，所以「已删除用户读缓存仍存在」的漏洞已经堵上。</li>
  *   <li><b>失败时写 HTTP 状态码</b>（401），而不只是响应体里塞 code=4010。前端 axios
  *       的响应拦截器按 HTTP 状态判断是否跳登录页，HTTP 200 会让它以为请求成功。</li>
- *   <li><b>这里不抛 BizException</b>。拦截器在 DispatcherServlet 之外执行，
- *       异常不会走 {@code @RestControllerAdvice}，所以必须自己写响应。</li>
  * </ol>
+ *
+ * <p>另外这里**不抛 BizException**：拦截器在 DispatcherServlet 之外执行，
+ * 异常不会走 {@code @RestControllerAdvice}，所以必须自己写响应。
  */
 @Slf4j
 @Component
@@ -66,7 +71,8 @@ public class AuthInterceptor implements HandlerInterceptor {
             return reject(response, "登录已失效，请重新登录");
         }
 
-        User user = userService.getById(parsed.userId());
+        // 走缓存：命中则完全不碰数据库
+        UserVO user = userService.getUserVoById(parsed.userId());
         if (user == null) {
             // 令牌签名没问题，但用户已被删除。返回同一句话，不透露「这个 id 曾经存在」
             log.debug("令牌指向的用户不存在或已删除: id={}", parsed.userId());

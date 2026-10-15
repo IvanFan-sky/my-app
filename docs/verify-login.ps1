@@ -21,14 +21,17 @@ function Invoke-Curl {
     param([string]$Method, [string]$Path, [string]$Body, [string]$Token)
     $bodyFile = Join-Path $tmp 'body.json'
     $outFile = Join-Path $tmp 'out.txt'
-    $args = @('-s', '-o', $outFile, '-w', '%{http_code}', '-X', $Method, "$base$Path")
-    if ($Token) { $args += @('-H', "Authorization: Bearer $Token") }
+    # 注意：$Token 是第 4 个位置参数，调用时**必须显式传**（例如 ... '/users' $json $token）。
+    # 漏传不会报错，只会变成「没带令牌」的请求，症状是接口莫名其妙返回 401 ——
+    # 第 14 节就踩过这个坑（新增用户那行漏了 $token），排查花了很久。
+    $curlArgs = @('-s', '-o', $outFile, '-w', '%{http_code}', '-X', $Method, "$base$Path")
+    if ($Token) { $curlArgs += @('-H', "Authorization: Bearer $Token") }
     if ($Body) {
         # 用文件传 body，避免 PowerShell 把 JSON 里的引号吃掉
         [System.IO.File]::WriteAllText($bodyFile, $Body, (New-Object System.Text.UTF8Encoding($false)))
-        $args += @('-H', 'Content-Type: application/json; charset=utf-8', '--data-binary', "@$bodyFile")
+        $curlArgs += @('-H', 'Content-Type: application/json; charset=utf-8', '--data-binary', "@$bodyFile")
     }
-    $status = (& curl.exe @args 2>$null | Out-String).Trim()
+    $status = (& curl.exe @curlArgs 2>$null | Out-String).Trim()
     $text = if (Test-Path $outFile) { [System.IO.File]::ReadAllText($outFile, [System.Text.Encoding]::UTF8) } else { '' }
     $parsed = $null
     if ($text) { try { $parsed = $text | ConvertFrom-Json } catch { } }
@@ -201,6 +204,91 @@ if ($regBody -match 'passwordHash' -or $regBody -match '\$2a\$') {
     $script:fail++; Write-Host "[FAIL] 注册响应泄漏密码哈希: $regBody"
 } else {
     $script:pass++; Write-Host '[PASS] 注册响应不含 passwordHash'
+}
+
+Write-Host ''
+Write-Host '===== 14. 用户管理 CRUD（增 / 改 / 删） ====='
+$cu = 'crud' + (Get-Random -Maximum 99999)
+$created = Invoke-Curl 'POST' '/users' (("{0}{1}{2}" -f '{"username":"', $cu, '","password":"crud123","email":"crud@example.com","age":30}')) $token
+Assert 'POST /api/users 新增 -> 0' $created 0 200 | Out-Null
+$cuId = $created.Json.data.id
+
+if ($cuId) {
+    $detail = Invoke-Curl 'GET' "/users/$cuId" $null $token
+    Assert 'GET /api/users/{id} 详情 -> 0' $detail 0 200 | Out-Null
+    # 详情接口不得泄漏密码哈希（它走缓存，缓存内容尤其要检查这一点）
+    if ($detail.Body -match 'passwordHash' -or $detail.Body -match '\$2a\$') {
+        $script:fail++; Write-Host "[FAIL] 用户详情泄漏密码哈希: $($detail.Body)"
+    } else {
+        $script:pass++; Write-Host '[PASS] 用户详情不含密码哈希'
+    }
+
+    Assert 'PUT /api/users/{id} 修改 -> 0' (Invoke-Curl 'PUT' "/users/$cuId" (("{0}{1}{2}" -f '{"username":"', $cu, '","password":"crud456","email":"crud2@example.com","age":31}')) $token) 0 200 | Out-Null
+    $after = Invoke-Curl 'GET' "/users/$cuId" $null $token
+    if ($after.Json.data.age -eq 31 -and $after.Json.data.email -eq 'crud2@example.com') {
+        $script:pass++; Write-Host '[PASS] 修改已生效（缓存未返回旧值）'
+    } else {
+        $script:fail++; Write-Host "[FAIL] 修改未生效，拿到旧数据: $($after.Body)"
+    }
+    Assert '改后新密码可登录' (Invoke-Curl 'POST' '/auth/login' (("{0}{1}{2}" -f '{"username":"', $cu, '","password":"crud456"}')) ) 0 200 | Out-Null
+
+    Assert 'DELETE /api/users/{id} -> 0' (Invoke-Curl 'DELETE' "/users/$cuId" $null $token) 0 200 | Out-Null
+    Assert '删除后查询 -> 4004' (Invoke-Curl 'GET' "/users/$cuId" $null $token) 4004 200 | Out-Null
+} else {
+    $script:fail++; Write-Host "[FAIL] 新增用户未返回 id: $($created.Body)"
+}
+
+Write-Host ''
+Write-Host '===== 15. 需要登录（未带令牌一律 401） ====='
+foreach ($case in @(
+    @{ m = 'GET';    p = '/users' },
+    @{ m = 'GET';    p = '/users/1' },
+    @{ m = 'GET';    p = '/users/stats' },
+    @{ m = 'POST';   p = '/users' },
+    @{ m = 'PUT';    p = '/users/1' },
+    @{ m = 'DELETE'; p = '/users/1' }
+)) {
+    Assert ("{0} {1} 无令牌 -> 401" -f $case.m, $case.p) (Invoke-Curl $case.m $case.p '{}') 4010 401 | Out-Null
+}
+
+Write-Host ''
+Write-Host '===== 16. 分页与关键字搜索 ====='
+$pageAll = Invoke-Curl 'GET' '/users?current=1&size=100' $null $token
+Assert '分页查询 -> 0' $pageAll 0 200 | Out-Null
+if ($pageAll.Json.data.total -ge 3) {
+    $script:pass++; Write-Host ("[PASS] 总数={0}，records 数量={1}" -f $pageAll.Json.data.total, $pageAll.Json.data.records.Count)
+} else {
+    $script:fail++; Write-Host "[FAIL] 总数异常: $($pageAll.Json.data.total)"
+}
+$byName = Invoke-Curl 'GET' '/users?keyword=alice&current=1&size=10' $null $token
+Assert '按用户名搜索 alice' $byName 0 200 | Out-Null
+if ($byName.Json.data.records.Count -ge 1 -and ($byName.Json.data.records | Where-Object { $_.username -eq 'alice' })) {
+    $script:pass++; Write-Host '[PASS] 关键字命中 alice'
+} else {
+    $script:fail++; Write-Host "[FAIL] 关键字未命中 alice: $($byName.Body)"
+}
+$byMail = Invoke-Curl 'GET' '/users?keyword=bob%40example.com&current=1&size=10' $null $token
+Assert '按邮箱搜索' $byMail 0 200 | Out-Null
+if ($byMail.Json.data.records.Count -ge 1) {
+    $script:pass++; Write-Host '[PASS] 邮箱关键字命中'
+} else {
+    $script:fail++; Write-Host "[FAIL] 邮箱关键字未命中: $($byMail.Body)"
+}
+$noHit = Invoke-Curl 'GET' '/users?keyword=zzz-no-such-user-zzz&current=1&size=10' $null $token
+if ($noHit.Json.data.total -eq 0) {
+    $script:pass++; Write-Host '[PASS] 无匹配时 total=0'
+} else {
+    $script:fail++; Write-Host "[FAIL] 无匹配却返回了数据: $($noHit.Body)"
+}
+
+Write-Host ''
+Write-Host '===== 17. 统计接口 ====='
+$st = Invoke-Curl 'GET' '/users/stats' $null $token
+Assert 'GET /api/users/stats -> 0' $st 0 200 | Out-Null
+if ($st.Json.data.totalUsers -ge 1) {
+    $script:pass++; Write-Host ("[PASS] totalUsers={0} hit={1} miss={2} rate={3:N3}" -f $st.Json.data.totalUsers, $st.Json.data.cacheHitCount, $st.Json.data.cacheMissCount, $st.Json.data.cacheHitRate)
+} else {
+    $script:fail++; Write-Host "[FAIL] 统计异常: $($st.Body)"
 }
 
 Write-Host ''

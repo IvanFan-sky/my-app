@@ -2,6 +2,9 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
+// 设计令牌必须排在 Element Plus 之后：它引用了 --el-* 变量，
+// 且 .app-* 类需要能覆盖组件库的默认样式
+import './styles/tokens.css'
 
 import App from './App.vue'
 import router from './router'

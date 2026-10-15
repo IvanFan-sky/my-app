@@ -26,14 +26,38 @@ export interface UserForm {
   age?: number
 }
 
+/** 对应后端 dto.UserStatsVO */
+export interface UserStats {
+  /** 未删除的用户总数 */
+  totalUsers: number
+  /** 缓存命中次数（自后端启动起，重启会归零） */
+  cacheHitCount: number
+  /** 缓存未命中次数 */
+  cacheMissCount: number
+  /** 命中率 0~1 */
+  cacheHitRate: number
+}
+
 /** GET /api/health —— 在白名单里，无需登录 */
 export function fetchHealth() {
   return request<Record<string, unknown>>({ url: '/health', method: 'get' })
 }
 
 /** 以下接口都需要登录 */
-export function pageUsers(params: { username?: string; current?: number; size?: number }) {
+
+/** 分页查询。keyword 同时匹配用户名与邮箱，为空则查全部 */
+export function pageUsers(params: { keyword?: string; current?: number; size?: number }) {
   return request<PageResult<User>>({ url: '/users', method: 'get', params })
+}
+
+/** 按 id 查询单个用户（后端走 Redis 缓存） */
+export function getUser(id: number) {
+  return request<User>({ url: `/users/${id}`, method: 'get' })
+}
+
+/** 概览统计 */
+export function fetchUserStats() {
+  return request<UserStats>({ url: '/users/stats', method: 'get' })
 }
 
 export function createUser(data: UserForm) {

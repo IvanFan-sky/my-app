@@ -14,17 +14,32 @@ import com.example.myapp.entity.User;
  *
  * <p>注意泛型参数是 {@link User}（实体），但对外暴露的方法返回值是
  * {@link UserVO}。这是有意的：实体带着 passwordHash，不该跨出 Service 边界。
+ *
+ * <p><b>读路径分两种，别用错</b>：
+ * <ul>
+ *   <li>{@link #getById}（继承来的）—— 直连数据库，返回带 passwordHash 的实体。
+ *       只有认证流程（校验口令）该用它。</li>
+ *   <li>{@link #getUserVoById} —— 走 Redis 缓存，返回对外可见的 VO。
+ *       接口层、鉴权拦截器用这个。</li>
+ * </ul>
  */
 public interface UserService extends IService<User> {
 
     /**
-     * 按用户名模糊分页查询。
+     * 按关键字（用户名 / 邮箱）模糊分页查询。
      *
-     * @param username 关键字，为空则查全部
-     * @param current  页码，从 1 开始
-     * @param size     每页条数
+     * @param keyword 关键字，为空则查全部
+     * @param current 页码，从 1 开始
+     * @param size    每页条数
      */
-    Page<UserVO> pageByUsername(String username, long current, long size);
+    Page<UserVO> pageByKeyword(String keyword, long current, long size);
+
+    /**
+     * 按主键取用户公开信息，**优先读 Redis 缓存**，未命中则回源数据库并回填。
+     *
+     * @return 用户不存在或已被逻辑删除时返回 null
+     */
+    UserVO getUserVoById(Long id);
 
     /**
      * 把表单里的明文密码加密后写进实体的 passwordHash。

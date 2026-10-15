@@ -86,10 +86,9 @@ defineProps<{
    定义在根元素上，下面的非 scoped 表单一并继承（CSS 变量可继承）。
    ============================================================ */
 .auth-layout {
-  --brand-from: #1f2a5a;
-  --brand-to: #2b3f8f;
-  --brand-accent: #6d8bff;
-
+  /* 色板不在这里定义：已提到 styles/tokens.css 的 :root，
+     登录/注册/用户管理三处共用同一份，避免各页面各自漂移。
+     这里只保留布局相关的属性。 */
   position: relative;
   display: flex;
   align-items: center;
