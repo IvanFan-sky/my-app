@@ -32,6 +32,8 @@
 | 状态管理 | Pinia | 2.3.x |
 | HTTP | axios | 1.7.x |
 | 包管理 | pnpm | 10.x |
+| JWT | jjwt | 0.12.5（`jjwt-api` compile + `jjwt-impl` / `jjwt-jackson` runtime） |
+| 密码哈希 | spring-security-crypto | 由 Boot BOM 管理（6.5.x），**只引这一个模块** |
 
 **为什么 Spring Boot 停留在 3.5.x 而不是 4.x**：3.5 是 3.x 最后一条线，中文生态
 （MyBatis-Plus、Druid、Hutool 等）与绝大多数教程都对齐它；4.x 需要 Spring Framework 7，
@@ -39,6 +41,15 @@
 
 **为什么用 MyBatis-Plus 而不是 JPA**：本项目定位是国内主流业务后端，MyBatis-Plus 的
 单表 CRUD + 条件构造器更贴近实际团队习惯，且 SQL 可控。
+
+**为什么引 jjwt 而不是自己写 HMAC**：JWT 的坑（alg 混淆、`exp` 时区、
+base64url 补位）自己写一遍很容易留下安全漏洞，用成熟库更稳。
+0.12.x 与 0.11 的 API 不兼容（`Jwts.builder().subject()` 取代了 `setSubject()`），
+照着旧教程写会直接编译不过。
+
+**为什么只要 `spring-security-crypto` 而不要 `spring-boot-starter-security`**：
+本项目鉴权走自定义拦截器，只需要一个 `BCryptPasswordEncoder`。引完整 starter 会装配
+整套 servlet 过滤器链和默认表单登录页，反而得再写配置把它关掉。
 
 ---
 
@@ -157,18 +168,23 @@ git ls-files | Select-String 'application-local'
 ```
 backend/src/main/java/com/example/myapp/
 ├── MyAppApplication.java   # 启动类，@MapperScan("com.example.myapp.mapper")
-├── common/                 # ApiResponse（统一响应）、BizException、GlobalExceptionHandler
-├── config/                 # MybatisPlusConfig（分页插件必须在此注册）
+├── common/                 # ApiResponse（统一响应）、BizException、ErrorCode、GlobalExceptionHandler
+├── config/                 # MybatisPlusConfig（分页插件）、WebMvcConfig（鉴权拦截器注册）、
+│                           # JwtProperties（app.jwt.* 配置）、SecurityBeanConfig（PasswordEncoder）
 ├── controller/             # 只做参数校验与编排，不写业务逻辑
+├── dto/                    # 对外请求体与响应体（Form / VO），不暴露 entity
 ├── entity/                 # 与数据库表一一对应
 ├── mapper/                 # 继承 BaseMapper，复杂 SQL 放 resources/mapper/*.xml
+├── security/               # JwtTokenProvider（签发/解析）、AuthInterceptor（校验令牌）、
+│                           # CurrentUser + LoginUser + CurrentUserArgumentResolver（注入登录用户）
 └── service/ + service/impl # 业务逻辑，继承 IService / ServiceImpl
 
 frontend/src/
-├── api/          # http.ts（axios 实例 + 拦截器）、user.ts（接口定义）
-├── router/       # 路由表
-├── stores/       # Pinia store（setup 写法）
-├── views/        # 页面组件，一页一文件
+├── api/          # http.ts（axios 实例 + 拦截器）、auth.ts（登录接口）、user.ts（接口定义）
+├── router/       # 路由表 + 未登录守卫
+├── stores/       # Pinia store（setup 写法），auth.ts 持有登录态
+├── views/        # 页面组件，一页一文件（LoginView / HomeView）
+├── bootstrap.ts  # 把 api 层的令牌注入与 401 回调接到 store / 路由上
 ├── App.vue       # 根布局，不放业务逻辑
 └── main.ts       # 应用装配
 ```
@@ -221,8 +237,30 @@ frontend/src/
 - 资源路径用复数名词（`/api/users`），动作用 HTTP 方法表达，不在路径里写动词。
 - 分页参数统一 `current`（从 1 开始）与 `size`；分页返回体直接用 MyBatis-Plus 的 `Page`
   结构（`records` / `total` / `current` / `size`）。
-- 业务错误码约定：`4000` 参数校验失败，`4004` 资源不存在，`5000` 未预期异常。
-  新增业务码请在此处登记，不要各处随手写数字。
+- 业务错误码集中定义在 `common/ErrorCode.java`：`4000` 参数校验失败，`4004` 资源不存在，
+  `4010` 未认证，`4030` 无权限（预留），`5000` 未预期异常。
+  **新增业务码必须加到那个类里**，不要各处随手写数字 —— 分散着写迟早会撞码。
+- 对外返回值一律用 `dto/` 下的 VO/Form，**不要把 `entity` 直接当返回值**：
+  `User` 带着 `passwordHash`，图省事返回实体就等于把密码哈希发给整个内网。
+
+### 认证接口
+
+| 方法 | 路径 | 需登录 | 说明 |
+|---|---|---|---|
+| POST | `/api/auth/login` | 否 | 入参 `{username, password}`，成功返回 `{token, tokenType, expiresIn, user}` |
+| GET | `/api/auth/me` | 是 | 返回当前令牌对应的用户，用于刷新页面后确认登录态 |
+| GET | `/api/health` | 否 | 健康检查（白名单，供前端探测后端是否可达） |
+
+除白名单（`/api/auth/login`、`/api/health`）外，`/api/**` 全部需要
+`Authorization: Bearer <token>`。配置见 `config/WebMvcConfig.java`。
+
+两个容易踩的点：
+
+- 鉴权失败时**同时**返回 HTTP 401 与 body 里的 `code=4010`，不只是 HTTP 200 + 业务码。
+  前端 axios 按 HTTP 状态决定是否跳登录页，只给 200 会让它以为请求成功。
+- 登录失败（用户不存在 / 密码错误）返回**完全相同**的错误码与文案，且用户不存在时
+  也会空跑一次 BCrypt 校验来对齐响应时间 —— 否则「文案一样但快慢不同」照样能枚举用户名。
+  改登录逻辑时不要破坏这两点。
 
 ---
 
@@ -245,6 +283,16 @@ frontend/src/
 
 - 数据库密码**不进版本库**。优先级：环境变量 `DB_PASSWORD` >
   `application-local.yml`（已在 `.gitignore` 里）。
+- **JWT 签名密钥（`APP_JWT_SECRET`）**：优先级为环境变量 `APP_JWT_SECRET` /
+  启动参数 `-Dapp.jwt.secret=...` > 代码内置的开发密钥（`JwtTokenProvider.DEV_SECRET`）。
+  - 未配置时**能正常启动**（降低本地开发门槛），但会在启动日志里打一条 WARN。
+    那条 WARN 不是噪音，是在提醒你此刻的令牌任何人都能伪造。
+  - **生产环境必须**：设置 `APP_JWT_SECRET`（至少 32 字符，可用
+    `openssl rand -base64 48` 生成），并把 `app.jwt.require-external-secret` 设为 `true`。
+    设成 true 后若忘记配密钥，应用会**直接启动失败**，而不是悄悄用公开密钥签发令牌。
+  - 密钥长度不足 32 字符时同样启动失败（jjwt 会拒绝弱密钥）。
+  - 令牌有效期 `app.jwt.expire-minutes` 默认 120 分钟。调大要权衡：
+    无状态 JWT 无法在服务端提前失效，有效期越长，令牌泄露后的危险窗口越大。
 - `application.yml` 里的 `log-impl: StdOutImpl` 会把每条 SQL 打到控制台，
   **上线前必须删掉**。
 - 前端只有 `VITE_` 前缀的变量会暴露给浏览器，因此**前端环境变量里不放任何密钥**。
@@ -265,6 +313,22 @@ frontend/src/
 2. **PowerShell 5.1 的 `Get-Content` 默认用系统 ANSI 代码页（本机 GBK）
    读取无 BOM 的 UTF-8 文件**，中文注释会变乱码，进而引发莫名其妙的语法错误。
    读脚本/文本一律显式加 `-Encoding UTF8`。
+
+   **同一个坑还有两个变体，写验证脚本时必踩**：
+
+   - **自己写的 `.ps1` 若含中文，必须存成带 BOM 的 UTF-8**，否则
+     `powershell.exe -File xxx.ps1` 会按 GBK 解析，中文注释里的全角括号会让脚本
+     报出与真实原因毫不相干的语法错误（`Array index expression is missing`）。
+     写入时用 `[System.IO.File]::WriteAllText($p, $t, (New-Object System.Text.UTF8Encoding($true)))`。
+     参考 `docs/verify-login.ps1`。
+   - **`Invoke-WebRequest` 在 PS 5.1 下读不到非 2xx 的响应体**：
+     `$_.Exception.Response.GetResponseStream()` 返回空串，于是「401 时 body 里
+     `code=4010`」这类关键断言会全部误判失败。**校验接口请一律用 `curl.exe`**
+     （`-s -o 文件 -w '%{http_code}'`，body 从文件按 UTF-8 读），不要用
+     `Invoke-WebRequest` / `Invoke-RestMethod`。
+
+   > 这条是实测踩出来的：`verify-login.ps1` 最初用 `Invoke-WebRequest`，
+   > 报了 4 个假失败，换成 `curl.exe` 后 25 项全过。
 
 3. **`.ps1` 可能因执行策略或文件封锁而无法直接运行**。两个办法：
    先 `Unblock-File`，或改用 `-ExecutionPolicy Bypass` / 以 ScriptBlock 执行。

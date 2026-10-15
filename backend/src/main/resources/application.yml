@@ -58,3 +58,17 @@ logging:
   level:
     root: info
     com.example.myapp: debug
+
+app:
+  jwt:
+    # 签名密钥。刻意不写默认值（${APP_JWT_SECRET:}），于是未配置时该属性为空串，
+    # 由 JwtProperties 判断并回落到内置开发密钥，同时打 WARN 提醒。
+    # 生产环境必须通过环境变量 APP_JWT_SECRET 或 -Dapp.jwt.secret=... 提供，
+    # 长度至少 32 字符（HS256 要求 256 位），可用 openssl rand -base64 48 生成。
+    secret: ${APP_JWT_SECRET:}
+    # 令牌有效期（分钟）。改大要权衡：令牌无法在服务端提前失效（无状态 JWT 的固有取舍），
+    # 有效期越长，令牌泄露后的危险窗口越大。
+    expire-minutes: 120
+    # 设为 true 时，未提供外部密钥将直接启动失败。生产环境务必设为 true，
+    # 否则忘记配密钥时会悄悄用公开的开发密钥签发令牌，任何人都能伪造。
+    require-external-secret: false

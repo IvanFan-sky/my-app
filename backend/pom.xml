@@ -21,6 +21,9 @@
         <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <mybatis-plus.version>3.5.17</mybatis-plus.version>
+        <!-- JWT 签发与校验。选 0.12.5：本机 Maven 仓库已有成品 jar，构建不依赖临时下载；
+             0.12.x 是当前稳定线（0.11 及更早的 API 与之不兼容，升级时注意 setSubject 等写法变化）。 -->
+        <jjwt.version>0.12.5</jjwt.version>
     </properties>
 
     <dependencies>
@@ -71,6 +74,38 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- JWT：jjwt 拆成三个包，缺一不可。
+               jjwt-api     —— 编译期用的接口（Jwts、Claims）
+               jjwt-impl    —— 运行期实现，scope=runtime 即可，代码里不直接引用
+               jjwt-jackson —— 用 Jackson 做 JSON 序列化（项目里已有 Jackson） -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>${jjwt.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- 密码哈希：刻意只引 spring-security-crypto 这一个模块，而不是
+             spring-boot-starter-security。后者会装配整套 servlet 过滤器链和表单登录，
+             本项目用自定义拦截器鉴权，引进来反而要写一堆配置把它关掉。
+             本模块只提供 BCryptPasswordEncoder，无自动配置、无副作用。
+             版本由 spring-boot-starter-parent 的 BOM 统一管理，不写版本号。 -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
+
         <!-- Lombok：编译期生成 getter/setter，IDE 需装 Lombok 插件 -->
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -99,6 +134,26 @@
                     </excludes>
                 </configuration>
             </plugin>
+
+            <!-- 显式打开注解处理，让 Lombok 生成 getter/setter。
+                 本机 JDK 21.0.8 上，javac 对这种场景会打印
+                 「警告: 未设置任何处理程序，批注处理将被禁用」并跳过处理，
+                 于是 @Data 不生成方法，编译报一堆「找不到符号 getUsername()」——
+                 这个报错方向极具误导性，看着像 Lombok 没装上，实际是处理被跳过。
+                 写死 -proc:full 就不依赖各 JDK 补丁版本对「按 classpath 发现处理器」
+                 的默认行为是否变化。注意这类报错也可能是同名类/注解冲突导致
+                 （记录类型与注解同名时，Xxx.class 会解析成类型而不是注解），
+                 不要一看到 getter 找不到就只怀疑此开关。 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <compilerArgs>
+                        <arg>-proc:full</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
+
         </plugins>
     </build>
 </project>

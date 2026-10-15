@@ -3,16 +3,14 @@ package com.example.myapp.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.myapp.common.ApiResponse;
 import com.example.myapp.common.BizException;
+import com.example.myapp.common.ErrorCode;
+import com.example.myapp.dto.UserForm;
+import com.example.myapp.dto.UserVO;
 import com.example.myapp.entity.User;
 import com.example.myapp.service.UserService;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
-import lombok.Data;
 import lombok.RequiredArgsConstructor;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,6 +25,8 @@ import org.springframework.web.bind.annotation.RestController;
  * User 的 REST 接口，路径前缀 /api/users。
  *
  * <p>统一返回 ApiResponse；业务失败抛 BizException，由 GlobalExceptionHandler 兜住。
+ *
+ * <p>整组接口都要求登录（见 WebMvcConfig 的拦截器注册），因为这里能读到全部用户资料。
  */
 @RestController
 @RequestMapping("/api/users")
@@ -37,41 +37,51 @@ public class UserController {
 
     /** GET /api/users?username=ab&current=1&size=10 */
     @GetMapping
-    public ApiResponse<Page<User>> page(@RequestParam(required = false) String username,
-                                       @RequestParam(defaultValue = "1") long current,
-                                       @RequestParam(defaultValue = "10") long size) {
+    public ApiResponse<Page<UserVO>> page(@RequestParam(required = false) String username,
+                                          @RequestParam(defaultValue = "1") long current,
+                                          @RequestParam(defaultValue = "10") long size) {
         return ApiResponse.ok(userService.pageByUsername(username, current, size));
     }
 
     /** GET /api/users/{id} */
     @GetMapping("/{id}")
-    public ApiResponse<User> get(@PathVariable Long id) {
+    public ApiResponse<UserVO> get(@PathVariable Long id) {
         User user = userService.getById(id);
         if (user == null) {
-            throw new BizException(4004, "用户不存在: " + id);
+            throw new BizException(ErrorCode.NOT_FOUND, "用户不存在: " + id);
         }
-        return ApiResponse.ok(user);
+        return ApiResponse.ok(UserVO.from(user));
     }
 
-    /** POST /api/users */
+    /**
+     * POST /api/users
+     *
+     * <p>新增时必须给密码，否则建出来的账号无法登录。这个「条件必填」的规则
+     * 注解表达不了（@NotBlank 会让修改接口留空改密也失败），所以在方法体里显式校验。
+     */
     @PostMapping
-    public ApiResponse<User> create(@Valid @RequestBody UserForm form) {
+    public ApiResponse<UserVO> create(@Valid @RequestBody UserForm form) {
+        if (!StringUtils.hasText(form.getPassword())) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "新增用户时密码不能为空");
+        }
         User user = new User();
         applyForm(user, form);
+        userService.assignPassword(user, form.getPassword());
         userService.save(user);
-        return ApiResponse.ok(user);
+        return ApiResponse.ok(UserVO.from(user));
     }
 
-    /** PUT /api/users/{id} */
+    /** PUT /api/users/{id} —— password 留空表示不修改密码 */
     @PutMapping("/{id}")
-    public ApiResponse<User> update(@PathVariable Long id, @Valid @RequestBody UserForm form) {
+    public ApiResponse<UserVO> update(@PathVariable Long id, @Valid @RequestBody UserForm form) {
         User user = userService.getById(id);
         if (user == null) {
-            throw new BizException(4004, "用户不存在: " + id);
+            throw new BizException(ErrorCode.NOT_FOUND, "用户不存在: " + id);
         }
         applyForm(user, form);
+        userService.assignPassword(user, form.getPassword());
         userService.updateById(user);
-        return ApiResponse.ok(user);
+        return ApiResponse.ok(UserVO.from(user));
     }
 
     /** DELETE /api/users/{id} —— 逻辑删除，只把 deleted 置 1 */
@@ -81,29 +91,16 @@ public class UserController {
         return ApiResponse.ok();
     }
 
+    /**
+     * 把表单里的可写字段搬到实体上。
+     *
+     * <p>注意这里**没有** password 与 deleted：密码由 assignPassword 专门处理
+     * （要做哈希和长度校验），deleted 由逻辑删除机制维护。字段少搬一个，
+     * 就少一条「客户端能改不该改的字段」的漏洞。
+     */
     private static void applyForm(User user, UserForm form) {
         user.setUsername(form.getUsername());
         user.setEmail(form.getEmail());
         user.setAge(form.getAge());
-    }
-
-    /**
-     * 请求体。刻意与实体分开：实体字段由数据库决定，表单字段由接口契约决定，
-     * 两者混用会让「客户端能改 createdAt」这类漏洞悄悄出现。
-     */
-    @Data
-    public static class UserForm {
-
-        @NotBlank(message = "用户名不能为空")
-        @Size(max = 64, message = "用户名最长 64 个字符")
-        private String username;
-
-        @Email(message = "邮箱格式不正确")
-        @Size(max = 128, message = "邮箱最长 128 个字符")
-        private String email;
-
-        @Min(value = 0, message = "年龄不能小于 0")
-        @Max(value = 200, message = "年龄不能大于 200")
-        private Integer age;
     }
 }

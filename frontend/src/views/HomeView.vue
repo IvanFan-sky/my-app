@@ -14,9 +14,10 @@ const total = ref(0)
 // 查询条件与分页状态
 const query = reactive({ username: '', current: 1, size: 10 })
 
-// 新增表单
-const form = reactive<{ username: string; email: string; age?: number }>({
+// 新增表单：password 是必填的（后端要求），否则建出来的账号无法登录
+const form = reactive<{ username: string; password: string; email: string; age?: number }>({
   username: '',
+  password: '',
   email: '',
   age: undefined,
 })
@@ -54,14 +55,20 @@ async function submit() {
     ElMessage.warning('用户名不能为空')
     return
   }
+  if (!form.password) {
+    ElMessage.warning('密码不能为空，否则新建的账号无法登录')
+    return
+  }
   try {
     await createUser({
       username: form.username.trim(),
+      password: form.password,
       email: form.email.trim() || undefined,
       age: form.age,
     })
     ElMessage.success('新增成功')
     form.username = ''
+    form.password = ''
     form.email = ''
     form.age = undefined
     query.current = 1
@@ -116,6 +123,16 @@ onMounted(async () => {
       <el-form :inline="true" @submit.prevent="submit">
         <el-form-item label="用户名">
           <el-input v-model="form.username" placeholder="必填" style="width: 160px" />
+        </el-form-item>
+        <el-form-item label="密码">
+          <el-input
+            v-model="form.password"
+            type="password"
+            placeholder="必填，至少 6 位"
+            autocomplete="new-password"
+            show-password
+            style="width: 180px"
+          />
         </el-form-item>
         <el-form-item label="邮箱">
           <el-input v-model="form.email" placeholder="选填" style="width: 200px" />
