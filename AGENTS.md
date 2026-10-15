@@ -269,6 +269,32 @@ frontend/src/
    若看到该提示且 `pnpm dev`/`pnpm build` 正常，可忽略 —— esbuild 的二进制来自平台专用
    可选依赖，不依赖 postinstall 脚本。
 
+10. **`java -jar target/xxx.jar` 会把 jar 锁住，导致之后 `mvn clean` 失败。**
+    Windows 上正在运行的 JVM 独占该 jar 文件，清理时报：
+
+    ```
+    Failed to delete ...\target\my-app-0.0.1-SNAPSHOT.jar:
+    另一个程序正在使用此文件，进程无法访问。
+    ```
+
+    **这不是依赖问题**，就是有个旧进程还在跑。排查与处理：
+
+    ```powershell
+    Get-Process java,node -ErrorAction SilentlyContinue | Select-Object Id,ProcessName
+    Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue
+    ```
+
+    确认后结束那个进程即可。**日常启动后端优先用 `mvn spring-boot:run`，
+    或在 IDEA 里用 Spring Boot 运行配置** —— 它们不占用 `target` 下的成品 jar，
+    也就不会和 `clean` / `package` 打架。真要跑成品 jar，先把服务停掉再构建。
+
+11. **IDEA 里用 Lombok 需要开启注解处理。** 本项目实体与 DTO 用 `@Data` / `@Slf4j` 等
+    注解在编译期生成 getter/setter。命令行 Maven 构建不受影响，但 IDEA 需要：
+    `Settings → Build, Execution, Deployment → Compiler → Annotation Processors`
+    勾选 `Enable annotation processing`；同时确认已启用 Lombok 插件
+    （IDEA 2024.1 已内置）。否则编辑器会满屏 `cannot resolve method getUsername()` 之类的
+    红色报错，而 `mvn compile` 却是绿的 —— 那是编辑器索引问题，不是代码问题。
+
 ---
 
 ## 11. 改动前必做（给 AI agent 的工作约定）
