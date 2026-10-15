@@ -1,0 +1,37 @@
+# 换行符与文本/二进制处理约定
+#
+# 背景：本机 git 配置是 core.autocrlf=true，它会在 checkout 时把 LF 转成 CRLF。
+# 结果就是同一份代码在不同机器/不同次检出上换行符不一致，容易出现
+# 「只改了换行符」的假 diff，把真正的改动淹没。
+#
+# 属性优先于 git config，因此本文件一旦生效，core.autocrlf 就不再影响这些文件。
+
+# 默认：自动识别文本文件，且仓库与工作区一律使用 LF。
+# 这是 Java / TypeScript / YAML / Markdown 项目的通行约定，也与 Linux CI 一致。
+* text=auto eol=lf
+
+# Windows 专属脚本按 Windows 惯例保留 CRLF
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# 明确标记二进制文件，避免被当作文本参与换行符转换与 diff
+*.jar   binary
+*.war   binary
+*.class binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.svg   text
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.eot   binary
+*.pdf   binary
+*.xlsx  binary
+*.docx  binary
+*.pptx  binary
+*.zip   binary
