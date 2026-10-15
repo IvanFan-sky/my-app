@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Maven 用户级配置参考（把本文件另存为 C:\Users\FanLian\.m2\settings.xml 即可生效）。
+
+  为什么建议放到 ~/.m2/settings.xml：
+  你当前生效的配置在 F:\JavaTool\apache-maven-3.10.0\conf\settings.xml，
+  那是「Maven 安装目录里的全局配置」。一旦将来换掉或删掉这套 Maven，
+  镜像和本地仓库设置就跟着没了。放到用户目录下则与 Maven 安装位置解耦，
+  命令行、IDEA、以及任何版本的 Maven 都会读到它。
+
+  内容与你现在生效的配置完全等价，没有引入任何行为变化。
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0 https://maven.apache.org/xsd/settings-1.2.0.xsd">
+
+  <!--
+    本地仓库必须显式指向这里。
+    如果留给默认值，Maven 会用 C:\Users\FanLian\.m2\repository，
+    于是 Spring Boot 那一整套依赖会被重新下载几百 MB，并且本机出现两份缓存。
+  -->
+  <localRepository>F:\JavaTool\Maven\maven_repository</localRepository>
+
+  <mirrors>
+    <!--
+      mirror 的 id 保持 aliyunmaven 不要改：
+      本地仓库里每个 artifact 都有一份 _remote.repositories，
+      里面记录着它来自哪个仓库 id。改了 id 会让 Maven 认为这些文件
+      「缓存自一个当前不可用的仓库」，虽然最终仍能恢复，但会多出大量无谓校验。
+    -->
+    <mirror>
+      <id>aliyunmaven</id>
+      <mirrorOf>central</mirrorOf>
+      <name>阿里云中央仓库</name>
+      <url>https://maven.aliyun.com/repository/central</url>
+    </mirror>
+  </mirrors>
+
+  <profiles>
+    <profile>
+      <id>myjdk</id>
+      <activation>
+        <activeByDefault>true</activeByDefault>
+        <jdk>21</jdk>
+      </activation>
+      <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <maven.compiler.compilerVersion>21</maven.compiler.compilerVersion>
+      </properties>
+    </profile>
+  </profiles>
+
+  <activeProfiles>
+    <activeProfile>myjdk</activeProfile>
+  </activeProfiles>
+</settings>

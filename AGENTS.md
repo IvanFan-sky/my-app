@@ -291,9 +291,41 @@ frontend/src/
 11. **IDEA 里用 Lombok 需要开启注解处理。** 本项目实体与 DTO 用 `@Data` / `@Slf4j` 等
     注解在编译期生成 getter/setter。命令行 Maven 构建不受影响，但 IDEA 需要：
     `Settings → Build, Execution, Deployment → Compiler → Annotation Processors`
-    勾选 `Enable annotation processing`；同时确认已启用 Lombok 插件
-    （IDEA 2024.1 已内置）。否则编辑器会满屏 `cannot resolve method getUsername()` 之类的
-    红色报错，而 `mvn compile` 却是绿的 —— 那是编辑器索引问题，不是代码问题。
+    勾选 `Enable annotation processing`；同时确认已启用 Lombok 插件。
+    否则编辑器会满屏 `cannot resolve method getUsername()` 之类的红色报错，
+    而 `mvn compile` 却是绿的 —— 那是编辑器索引问题，不是代码问题。
+
+12. **IDEA 2024.1 与 Maven 3.10.0 不兼容。** 症状很有迷惑性：
+    **IDEA 里没有依赖树、所有 Java 文件爆红，但命令行 `mvn` 一切正常。**
+    真因在 `%LOCALAPPDATA%\JetBrains\IntelliJIdea<版本>\log\idea.log`：
+
+    ```
+    SEVERE - #o.j.i.maven - com.google.inject.CreationException: Unable to create injector
+    [Guice/MissingImplementation]: No implementation for ArtifactHandlerManager was bound.
+    Requested by: DefaultArtifactFactory.artifactHandlerManager
+       at MavenProjectResolver.resolveProjectsInEmbedder
+    ```
+
+    Maven 3.10.0 把 Maven Resolver 从 **1.9.18 升到 2.0.24**，依赖注入的装配方式随之改变；
+    IDEA 2024.1 的嵌入容器是按 Resolver 1.x 构建的，于是导入进程一启动就崩，
+    模块建不出来（`.idea/*.iml` 只剩空壳），classpath 为空 → 全文件爆红。
+
+    **二选一：**
+
+    - **让 IDEA 用自带的 Maven**：`Settings → Build, Execution, Deployment →
+      Build Tools → Maven → Maven home path` 改成 **`Bundled (Maven 3)`**
+      （IDEA 2024.1 自带 3.9.6，位于 `plugins\maven\lib\maven3`）。
+      命令行不受影响，仍可继续用 3.10.0。
+    - **升级 IDEA** 到 2025.3 或更高（2025.3 起改为统一发行版，已支持 Spring Boot 4 /
+      Framework 7）。2024.1 到新版本没有增量补丁路径，需要下载完整安装包。
+
+    **两种做法都要顺手核对这一项**：`Settings → Maven → Local repository` 必须是
+    `F:\JavaTool\Maven\maven_repository`。若它回落成 `C:\Users\FanLian\.m2\repository`，
+    Spring Boot 全套依赖会被重新下载几百 MB，本机还会出现两份缓存。
+    镜像与本地仓库的配置参考见 `docs/maven-settings-参考.xml`。
+
+    排查通用思路：**IDEA 里报依赖问题而命令行正常时，先看 `idea.log`**，
+    真实异常几乎总在里面，比 IDEA 前台的笼统提示有用得多。
 
 ---
 
