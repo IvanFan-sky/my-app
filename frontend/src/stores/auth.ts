@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { fetchMe, login as loginApi } from '@/api/auth'
-import type { AuthUser } from '@/api/auth'
+import { fetchMe, login as loginApi, register as registerApi } from '@/api/auth'
+import type { AuthUser, RegisterPayload } from '@/api/auth'
 
 const TOKEN_KEY = 'my-app.token'
 const USER_KEY = 'my-app.user'
@@ -70,6 +70,16 @@ export const useAuthStore = defineStore('auth', () => {
     return result
   }
 
+  /**
+   * 注册：后端注册成功即签发令牌，所以这里和 login 一样直接写入会话，
+   * 用户不需要「注册完再登一次」。
+   */
+  async function register(payload: RegisterPayload) {
+    const result = await registerApi(payload)
+    setSession(result.token, result.user)
+    return result
+  }
+
   function logout() {
     clearSession()
   }
@@ -97,5 +107,5 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { token, user, isAuthenticated, login, logout, restore }
+  return { token, user, isAuthenticated, login, register, logout, restore }
 })

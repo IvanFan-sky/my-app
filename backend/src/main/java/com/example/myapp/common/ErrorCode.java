@@ -12,6 +12,7 @@ package com.example.myapp.common;
  *   <li>0 —— 成功</li>
  *   <li>4000 —— 参数校验失败</li>
  *   <li>4004 —— 资源不存在（沿用骨架里已有的码，不要改成 4040）</li>
+ *   <li>4009 —— 资源冲突（用户名已被占用等）</li>
  *   <li>4010 —— 认证相关（未登录、登录失败、令牌无效）</li>
  *   <li>4030 —— 授权相关（已登录但无权限，本版本还没用到，先登记占位）</li>
  *   <li>5000 —— 服务端自身异常</li>
@@ -21,6 +22,14 @@ public final class ErrorCode {
 
     /** 参数校验失败（@Valid 失败、表单字段不合法） */
     public static final int PARAM_INVALID = 4000;
+
+    /**
+     * 资源冲突，例如注册时用户名已被占用。
+     *
+     * <p>HTTP 语义上对应 409，但本项目约定「HTTP 200 + 业务 code」
+     * （见 GlobalExceptionHandler 的说明），因此这里仍是业务码。
+     */
+    public static final int CONFLICT = 4009;
 
     /**
      * 未认证。用户名或密码错误、缺少令牌、令牌无效或过期，都用这个码。

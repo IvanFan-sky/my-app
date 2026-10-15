@@ -180,14 +180,21 @@ backend/src/main/java/com/example/myapp/
 └── service/ + service/impl # 业务逻辑，继承 IService / ServiceImpl
 
 frontend/src/
-├── api/          # http.ts（axios 实例 + 拦截器）、auth.ts（登录接口）、user.ts（接口定义）
-├── router/       # 路由表 + 未登录守卫
+├── api/          # http.ts（axios 实例 + 拦截器）、auth.ts（登录/注册接口）、user.ts（接口定义）
+├── components/   # AuthLayout.vue（登录/注册共用外壳与共享表单样式）、FieldIcon.vue（内联 SVG 图标）
+├── router/       # 路由表 + 未登录守卫（public 页面：/login、/register）
 ├── stores/       # Pinia store（setup 写法），auth.ts 持有登录态
-├── views/        # 页面组件，一页一文件（LoginView / HomeView）
+├── views/        # 页面组件，一页一文件（LoginView / RegisterView / HomeView）
 ├── bootstrap.ts  # 把 api 层的令牌注入与 401 回调接到 store / 路由上
 ├── App.vue       # 根布局，不放业务逻辑
 └── main.ts       # 应用装配
 ```
+
+> **登录页与注册页的样式为什么集中在 `components/AuthLayout.vue`**：两个页面若各自
+> 写一套，色板、圆角、按钮、间距会各自漂移，最后看起来像两个产品。外壳与共享表单样式
+> 收在 AuthLayout 里，「设计语言统一」由结构保证而不是靠人同步。
+> 其中共享表单样式是**非 scoped** 的（表单由父组件插槽传入，scoped 样式碰不到插槽内容），
+> 所以类名一律带 `auth-` / `field-` 前缀避免全局污染 —— 这是有意为之，不是漏写 scoped。
 
 ---
 
@@ -238,7 +245,7 @@ frontend/src/
 - 分页参数统一 `current`（从 1 开始）与 `size`；分页返回体直接用 MyBatis-Plus 的 `Page`
   结构（`records` / `total` / `current` / `size`）。
 - 业务错误码集中定义在 `common/ErrorCode.java`：`4000` 参数校验失败，`4004` 资源不存在，
-  `4010` 未认证，`4030` 无权限（预留），`5000` 未预期异常。
+  `4009` 资源冲突（用户名已占用），`4010` 未认证，`4030` 无权限（预留），`5000` 未预期异常。
   **新增业务码必须加到那个类里**，不要各处随手写数字 —— 分散着写迟早会撞码。
 - 对外返回值一律用 `dto/` 下的 VO/Form，**不要把 `entity` 直接当返回值**：
   `User` 带着 `passwordHash`，图省事返回实体就等于把密码哈希发给整个内网。
@@ -248,19 +255,26 @@ frontend/src/
 | 方法 | 路径 | 需登录 | 说明 |
 |---|---|---|---|
 | POST | `/api/auth/login` | 否 | 入参 `{username, password}`，成功返回 `{token, tokenType, expiresIn, user}` |
+| POST | `/api/auth/register` | 否 | 入参 `{username, password, email?}`，**成功也返回令牌（注册即登录）** |
 | GET | `/api/auth/me` | 是 | 返回当前令牌对应的用户，用于刷新页面后确认登录态 |
 | GET | `/api/health` | 否 | 健康检查（白名单，供前端探测后端是否可达） |
 
-除白名单（`/api/auth/login`、`/api/health`）外，`/api/**` 全部需要
+除白名单（`/api/auth/login`、`/api/auth/register`、`/api/health`）外，`/api/**` 全部需要
 `Authorization: Bearer <token>`。配置见 `config/WebMvcConfig.java`。
 
-两个容易踩的点：
+三个容易踩的点：
 
 - 鉴权失败时**同时**返回 HTTP 401 与 body 里的 `code=4010`，不只是 HTTP 200 + 业务码。
   前端 axios 按 HTTP 状态决定是否跳登录页，只给 200 会让它以为请求成功。
 - 登录失败（用户不存在 / 密码错误）返回**完全相同**的错误码与文案，且用户不存在时
   也会空跑一次 BCrypt 校验来对齐响应时间 —— 否则「文案一样但快慢不同」照样能枚举用户名。
   改登录逻辑时不要破坏这两点。
+- **注册的用户名判重必须靠唯一索引兜底，不能只写「先查一次有没有」**。
+  原因：`@TableLogic` 让查询自动带上 `deleted = 0`，所以「已被逻辑删除的同名用户」
+  查不出来，但它仍然占着 `username` 的唯一索引（实测会抛 `Duplicate entry`）。
+  只查重会让这种请求落到兜底分支报 5000。正确做法是
+  查重（给出友好提示）+ 捕获 `DuplicateKeyException`（保证正确性），见
+  `AuthServiceImpl.register`。`docs/verify-login.ps1` 第 12c 组专门验这个边界。
 
 ---
 

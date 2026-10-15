@@ -30,10 +30,12 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 // 默认放行静态资源一类，但本项目是前后端分离，后端不提供页面；
                 // 明确写成 /api/** 更清楚：只保护接口，将来加了 actuator 之类也不会被误拦。
                 .addPathPatterns("/api/**")
-                // 白名单：这两个接口必须在未登录时可访问，否则会陷入
-                // 「要登录得先有令牌，要令牌得先登录」的死循环。
+                // 白名单：这些接口必须在未登录时可访问，否则会陷入
+                // 「要登录得先有令牌，要令牌得先登录」的死循环 ——
+                // 注册同理，注册本身就是为了拿到第一个令牌。
                 .excludePathPatterns(
                         "/api/auth/login",
+                        "/api/auth/register",
                         "/api/health"
                 );
     }

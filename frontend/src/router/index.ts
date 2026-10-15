@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '@/views/HomeView.vue'
 import LoginView from '@/views/LoginView.vue'
+import RegisterView from '@/views/RegisterView.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
@@ -11,6 +12,13 @@ const router = createRouter({
       name: 'login',
       component: LoginView,
       // 已登录的人不该再看到登录页
+      meta: { public: true },
+    },
+    {
+      path: '/register',
+      name: 'register',
+      component: RegisterView,
+      // 注册页同理：未登录才该看到
       meta: { public: true },
     },
     {
@@ -36,11 +44,13 @@ router.beforeEach((to) => {
   // 直接报 "getActivePinia() was called but there was no active Pinia"。
   const auth = useAuthStore()
 
-  if (!to.meta.public && !auth.isAuthenticated) {
-    return { name: 'login', query: { redirect: to.fullPath } }
+  // 所有 public 页面（登录、注册）都是「未登录才该看」，
+  // 已登录时统一回首页，避免登录后手点后退又回到登录页
+  if (to.meta.public) {
+    return auth.isAuthenticated ? { name: 'home' } : true
   }
-  if (to.name === 'login' && auth.isAuthenticated) {
-    return { name: 'home' }
+  if (!auth.isAuthenticated) {
+    return { name: 'login', query: { redirect: to.fullPath } }
   }
   return true
 })

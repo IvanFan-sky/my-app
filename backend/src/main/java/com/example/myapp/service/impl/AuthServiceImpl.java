@@ -5,6 +5,7 @@ import com.example.myapp.common.BizException;
 import com.example.myapp.common.ErrorCode;
 import com.example.myapp.dto.LoginForm;
 import com.example.myapp.dto.LoginResponse;
+import com.example.myapp.dto.RegisterForm;
 import com.example.myapp.dto.UserVO;
 import com.example.myapp.entity.User;
 import com.example.myapp.security.JwtTokenProvider;
@@ -12,8 +13,10 @@ import com.example.myapp.service.AuthService;
 import com.example.myapp.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 @Slf4j
 @Service
@@ -60,6 +63,42 @@ public class AuthServiceImpl implements AuthService {
 
         String token = tokenProvider.createToken(user.getId(), user.getUsername());
         log.info("登录成功 username={} userId={}", user.getUsername(), user.getId());
+        return new LoginResponse(token, "Bearer", tokenProvider.getExpireSeconds(), UserVO.from(user));
+    }
+
+    @Override
+    public LoginResponse register(RegisterForm form) {
+        String username = form.getUsername().trim();
+
+        // 先查一次给出友好提示。注意这一步**不足以**保证唯一：
+        //   1) 并发下两个请求可能同时通过检查，最终由唯一索引拦下；
+        //   2) 更隐蔽的是逻辑删除 —— @TableLogic 让查询自动带上 deleted = 0，
+        //      于是「已被逻辑删除的同名用户」查不出来，但它仍占着 username 的唯一索引
+        //      （实测会抛 Duplicate entry）。这种情况下查重一定漏判。
+        // 所以下面必须再兜住 DuplicateKeyException，只靠查重会让这种请求报 5000。
+        if (userService.count(Wrappers.<User>lambdaQuery().eq(User::getUsername, username)) > 0) {
+            throw new BizException(ErrorCode.CONFLICT, "用户名已被占用，请换一个");
+        }
+
+        User user = new User();
+        user.setUsername(username);
+        // 邮箱留空按 null 处理，避免把空串写进库（空串和 NULL 在唯一性、查询上语义不同）
+        user.setEmail(StringUtils.hasText(form.getEmail()) ? form.getEmail().trim() : null);
+        // 复用与「新增用户」同一套密码处理（长度、UTF-8 字节数校验都在里面）
+        userService.assignPassword(user, form.getPassword());
+
+        try {
+            userService.save(user);
+        } catch (DuplicateKeyException e) {
+            // 走到这里说明用户名被占：要么并发抢注，要么撞上已被逻辑删除的同名用户。
+            // 对客户端而言两者的处理方式一样，都是「换个用户名」。
+            log.info("注册失败：用户名唯一键冲突 username={}", username);
+            throw new BizException(ErrorCode.CONFLICT, "用户名已被占用，请换一个");
+        }
+
+        // 注册即登录：直接签发令牌，省掉「注册完再登一次」这一步
+        String token = tokenProvider.createToken(user.getId(), user.getUsername());
+        log.info("注册成功 username={} userId={}", user.getUsername(), user.getId());
         return new LoginResponse(token, "Bearer", tokenProvider.getExpireSeconds(), UserVO.from(user));
     }
 

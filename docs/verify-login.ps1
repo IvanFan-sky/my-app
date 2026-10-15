@@ -157,6 +157,53 @@ if ($token) {
 }
 
 Write-Host ''
+Write-Host '===== 12. 注册接口 ====='
+$reg = 'reg' + (Get-Random -Maximum 999999)
+$regOk = Invoke-Curl 'POST' '/auth/register' (("{0}{1}{2}" -f '{"username":"', $reg, '","password":"secret123","email":"reg@example.com"}'))
+Assert 'POST /api/auth/register 正常注册 -> 0' $regOk 0 200 | Out-Null
+if ($regOk.Json.data.token) {
+    # 注册即登录：拿注册返回的令牌直接访问受保护接口
+    Assert '注册返回的令牌可直接访问 /api/auth/me' (Invoke-Curl 'GET' '/auth/me' $null $regOk.Json.data.token) 0 200 | Out-Null
+} else {
+    $script:fail++; Write-Host '[FAIL] 注册响应没有 token（注册即登录失效）'
+}
+Assert '注册后可登录' (Invoke-Curl 'POST' '/auth/login' (("{0}{1}{2}" -f '{"username":"', $reg, '","password":"secret123"}')) ) 0 200 | Out-Null
+
+Write-Host ''
+Write-Host '----- 12b. 重名与校验 -----'
+Assert '重名注册 -> 4009' (Invoke-Curl 'POST' '/auth/register' (("{0}{1}{2}" -f '{"username":"', $reg, '","password":"secret123"}')) ) 4009 200 | Out-Null
+Assert '与种子用户 alice 重名 -> 4009' (Invoke-Curl 'POST' '/auth/register' '{"username":"alice","password":"secret123"}') 4009 200 | Out-Null
+Assert '密码 5 位 -> 4000' (Invoke-Curl 'POST' '/auth/register' '{"username":"regshort1","password":"12345"}') 4000 200 | Out-Null
+Assert '用户名空 -> 4000' (Invoke-Curl 'POST' '/auth/register' '{"username":"","password":"secret123"}') 4000 200 | Out-Null
+Assert '用户名纯空格 -> 4000' (Invoke-Curl 'POST' '/auth/register' '{"username":"   ","password":"secret123"}') 4000 200 | Out-Null
+Assert '邮箱格式错 -> 4000' (Invoke-Curl 'POST' '/auth/register' '{"username":"regmail1","password":"secret123","email":"not-an-email"}') 4000 200 | Out-Null
+Assert '邮箱省略也可注册 -> 0' (Invoke-Curl 'POST' '/auth/register' ("{0}{1}{2}" -f '{"username":"noemail', (Get-Random -Maximum 99999), '","password":"secret123"}')) 0 200 | Out-Null
+Assert '密码超 72 字符 -> 4000' (Invoke-Curl 'POST' '/auth/register' (("{0}{1}{2}" -f '{"username":"reglong1","password":"', ('a' * 73), '"}')) ) 4000 200 | Out-Null
+
+Write-Host ''
+Write-Host '----- 12c. 关键边界：逻辑删除的用户名仍占唯一索引 -----'
+Write-Host '         （MyBatis-Plus 查询会自动过滤 deleted=1，所以「先查重」必然漏判；'
+Write-Host '           必须靠唯一键兜底，否则这里会返回 5000 而不是 4009）'
+$delUser = 'del' + (Get-Random -Maximum 99999)
+$delOk = Invoke-Curl 'POST' '/auth/register' (("{0}{1}{2}" -f '{"username":"', $delUser, '","password":"secret123"}'))
+if ($delOk.Json.code -eq 0) {
+    $delId = $delOk.Json.data.user.id
+    Assert '逻辑删除该用户（走正常删除接口）' (Invoke-Curl 'DELETE' "/users/$delId" $null $token) 0 200 | Out-Null
+    Assert '同名再注册 -> 必须是 4009（若为 5000 说明兜底失效）' (Invoke-Curl 'POST' '/auth/register' (("{0}{1}{2}" -f '{"username":"', $delUser, '","password":"secret123"}')) ) 4009 200 | Out-Null
+} else {
+    $script:fail++; Write-Host "[FAIL] 无法创建用于删除测试的用户: $($delOk.Body)"
+}
+
+Write-Host ''
+Write-Host '===== 13. 注册接口不得泄漏密码哈希 ====='
+$regBody = $regOk.Body
+if ($regBody -match 'passwordHash' -or $regBody -match '\$2a\$') {
+    $script:fail++; Write-Host "[FAIL] 注册响应泄漏密码哈希: $regBody"
+} else {
+    $script:pass++; Write-Host '[PASS] 注册响应不含 passwordHash'
+}
+
+Write-Host ''
 Write-Host '=================================================='
 Write-Host ("汇总: PASS={0}  FAIL={1}" -f $script:pass, $script:fail)
 if ($script:fail -gt 0) { exit 1 }

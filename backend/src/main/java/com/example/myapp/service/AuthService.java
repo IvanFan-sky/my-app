@@ -2,6 +2,7 @@ package com.example.myapp.service;
 
 import com.example.myapp.dto.LoginForm;
 import com.example.myapp.dto.LoginResponse;
+import com.example.myapp.dto.RegisterForm;
 import com.example.myapp.dto.UserVO;
 
 /**
@@ -22,6 +23,19 @@ public interface AuthService {
      * @return 令牌与用户信息
      */
     LoginResponse login(LoginForm form);
+
+    /**
+     * 注册新账号，并**直接签发令牌**（注册即登录，不需要再登一次）。
+     *
+     * <p>返回类型与 {@link #login} 一致，前端两条路径可以用同一套处理逻辑。
+     *
+     * <p>失败时抛 {@link com.example.myapp.common.BizException}：
+     * 用户名已被占用为 4009；密码不合规为 4000（由 UserService 校验字节长度）。
+     *
+     * @param form 注册表单（已通过 @Valid 校验）
+     * @return 令牌与新用户信息
+     */
+    LoginResponse register(RegisterForm form);
 
     /**
      * 按主键取当前登录用户的公开信息。

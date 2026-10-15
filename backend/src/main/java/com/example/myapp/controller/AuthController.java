@@ -5,6 +5,7 @@ import com.example.myapp.common.BizException;
 import com.example.myapp.common.ErrorCode;
 import com.example.myapp.dto.LoginForm;
 import com.example.myapp.dto.LoginResponse;
+import com.example.myapp.dto.RegisterForm;
 import com.example.myapp.dto.UserVO;
 import com.example.myapp.security.CurrentUser;
 import com.example.myapp.security.LoginUser;
@@ -39,6 +40,17 @@ public class AuthController {
     @PostMapping("/login")
     public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginForm form) {
         return ApiResponse.ok(authService.login(form));
+    }
+
+    /**
+     * POST /api/auth/register
+     *
+     * <p>注册成功直接返回令牌（注册即登录），响应结构与登录一致。
+     * 用户名被占用返回 code 4009。
+     */
+    @PostMapping("/register")
+    public ApiResponse<LoginResponse> register(@Valid @RequestBody RegisterForm form) {
+        return ApiResponse.ok(authService.register(form));
     }
 
     /**
