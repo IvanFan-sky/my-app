@@ -120,6 +120,36 @@ pnpm preview                   # 预览构建产物
 & 'F:\JavaTool\Redis-x64-8.10.2\redis-cli.exe' ping    # 期望 PONG
 ```
 
+### Git 远程与推送
+
+| 项 | 值 |
+|---|---|
+| 远程 | `origin` → `https://github.com/IvanFan-sky/my-app.git`（public） |
+| 分支 | `main`，跟踪 `origin/main` |
+
+**认证方式：HTTPS + Git Credential Manager**（系统级 `credential.helper=manager`，
+位于 `F:\JavaTool\Git\mingw64\bin\git-credential-manager.exe`）。
+首次推送在浏览器里完成一次 GitHub 授权，凭据存入 Windows 凭据管理器，之后免密。
+
+两个实测得到的注意点：
+
+- **GCM 在无终端的环境下会判定为非交互直接放弃**。要让它走浏览器授权，
+  必须显式设 `GCM_INTERACTIVE=always`（同时不要设 `GIT_TERMINAL_PROMPT=0`）。
+  反之，脚本化推送若想快速失败而不挂起，就设 `GIT_TERMINAL_PROMPT=0`。
+- **本机 SSH 私钥存在，但未在 GitHub 登记**：`ssh -T git@github.com` 返回
+  `Permission denied (publickey)`（22 与 443 端口均如此）。所以**不要**把远程地址改成
+  `git@github.com:IvanFan-sky/my-app.git`，除非先去
+  <https://github.com/settings/ssh/new> 登记 `~/.ssh/id_rsa.pub`。
+
+另注：全局 `~/.gitconfig` 里有 `http.sslverify=false`，GCM 每次会打印 TLS 安全警告。
+这是历史遗留配置，与推送是否成功无关。
+
+**推送前自查密码未入库**（应为空输出）：
+
+```powershell
+git ls-files | Select-String 'application-local'
+```
+
 ---
 
 ## 5. 目录结构
