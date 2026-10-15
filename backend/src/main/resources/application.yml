@@ -1,0 +1,60 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: my-app
+  profiles:
+    # local 这个 profile 专门放不进版本库的私密配置（数据库密码等），
+    # 文件是 application-local.yml，已在 .gitignore 里。首次拉代码后自己建一份。
+    active: local
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 本机 MySQL 8.4.11，服务名 MySQL84，端口 3306，字符集 utf8mb4
+    url: "jdbc:mysql://127.0.0.1:3306/my_app?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true"
+    # 密码不要写死在这里：用环境变量 DB_PASSWORD，或本地覆盖 application-dev.yml
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:}
+
+  data:
+    redis:
+      # 本机 Redis 8.10.2，服务名 Redis，端口 6379
+      host: 127.0.0.1
+      port: 6379
+      database: 0
+      timeout: 3s
+      # 本机 Redis 未配置 requirepass，因此不设 password
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+
+mybatis-plus:
+  # XML 映射文件位置（本骨架用注解为主，XML 仅作示例）
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.example.myapp.entity
+  configuration:
+    # 表字段 snake_case → 实体 camelCase
+    map-underscore-to-camel-case: true
+    # 开发期把 SQL 打到控制台，上线请删掉这一行
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      # 主键策略：数据库自增
+      id-type: auto
+      # 逻辑删除字段（配合 init.sql 里的 deleted 列）
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+logging:
+  level:
+    root: info
+    com.example.myapp: debug

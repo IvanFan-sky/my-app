@@ -1,0 +1,44 @@
+# ---- Java / Maven ----
+target/
+!.mvn/wrapper/maven-wrapper.jar
+*.class
+*.jar
+*.war
+*.log
+hs_err_pid*
+replay_pid*
+
+# ---- 前端 ----
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+.eslintcache
+coverage/
+
+# ---- IDE ----
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+*.swp
+*.swo
+
+# ---- 操作系统 ----
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# ---- 密钥与本地私有配置（务必保留这几行）----
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+application-local.yml
+application-secret.yml
