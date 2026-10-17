@@ -2,52 +2,20 @@
 /**
  * 系统设置（只读展示）。
  *
- * <p>这一页**刻意全部只读**。可以写的东西（改密码、改邮箱）需要一套
- * 「验证旧密码」的后端接口，属于独立需求；为了把页面填满而放几个点了没反应的
- * 开关，比不放更糟。所以这里只展示四组**真实取到**的信息，并在页面底部写明。
+ * <p>这一页**刻意全部只读**，而且只管「系统」，不再管「我」：
+ * 账号信息与登录令牌已经迁到个人中心（那里才可写）。
+ * 两页各管一件事，避免同一个信息在两处出现、改一处忘另一处。
+ * 这里展示的两组数据都是**真实取到**的，不放点了没反应的开关。
  */
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import { fetchHealth, fetchUserStats } from '@/api/user'
 import type { UserStats } from '@/api/user'
-import { useAuthStore } from '@/stores/auth'
-import { decodeJwtPayload, formatRemaining } from '@/utils/jwt'
-
-const auth = useAuthStore()
 
 const backendOk = ref<boolean | null>(null)
 const redisStatus = ref<string>('—')
 const stats = ref<UserStats | null>(null)
-
-/** 每秒刷新一次，让「剩余有效期」是活的而不是打开页面那一刻的快照 */
-const now = ref(Math.floor(Date.now() / 1000))
-let ticker: number | undefined
-
-const payload = computed(() => decodeJwtPayload(auth.token))
-
-const issuedAt = computed(() => {
-  const iat = payload.value?.iat
-  return iat ? new Date(iat * 1000).toLocaleString() : '—'
-})
-
-const expiresAt = computed(() => {
-  const exp = payload.value?.exp
-  return exp ? new Date(exp * 1000).toLocaleString() : '—'
-})
-
-const remaining = computed(() => {
-  const exp = payload.value?.exp
-  if (!exp) return '—'
-  return formatRemaining(exp - now.value)
-})
-
-/** 剩余时间不足 20 分钟时标黄，提醒该重新登录了 */
-const isExpiringSoon = computed(() => {
-  const exp = payload.value?.exp
-  if (!exp) return false
-  return exp - now.value < 20 * 60
-})
 
 const redisOk = computed(() => redisStatus.value === 'pong')
 
@@ -79,45 +47,14 @@ async function loadStats() {
 
 onMounted(async () => {
   await Promise.all([loadHealth(), loadStats()])
-  ticker = window.setInterval(() => {
-    now.value = Math.floor(Date.now() / 1000)
-  }, 1000)
-})
-
-onUnmounted(() => {
-  window.clearInterval(ticker)
 })
 </script>
 
 <template>
   <div class="settings-page">
-    <PageHeader title="系统设置" description="账号、服务与缓存状态的只读视图" />
+    <PageHeader title="系统设置" description="服务与缓存状态的只读视图（个人资料请到个人中心）" />
 
     <div class="grid">
-      <!-- 账号信息 -->
-      <el-card class="app-panel" shadow="never">
-        <template #header>
-          <div class="card-head">
-            <span class="card-title">账号信息</span>
-            <span class="card-icon"><AppIcon name="shield" :size="15" /></span>
-          </div>
-        </template>
-
-        <dl class="kv">
-          <div class="kv-row">
-            <dt>用户名</dt>
-            <dd>{{ auth.user?.username ?? '—' }}</dd>
-          </div>
-          <div class="kv-row">
-            <dt>用户 ID</dt>
-            <dd>{{ auth.user?.id ?? '—' }}</dd>
-          </div>
-          <div class="kv-row">
-            <dt>邮箱</dt>
-            <dd :class="{ muted: !auth.user?.email }">{{ auth.user?.email || '未填写' }}</dd>
-          </div>
-        </dl>
-      </el-card>
 
       <!-- 服务状态 -->
       <el-card class="app-panel" shadow="never">
@@ -187,39 +124,11 @@ onUnmounted(() => {
         <p class="note">统计来自后端进程内计数器，重启后端会归零。</p>
       </el-card>
 
-      <!-- 令牌信息 -->
-      <el-card class="app-panel" shadow="never">
-        <template #header>
-          <div class="card-head">
-            <span class="card-title">登录令牌</span>
-            <span class="card-icon"><AppIcon name="clock" :size="15" /></span>
-          </div>
-        </template>
 
-        <dl class="kv">
-          <div class="kv-row">
-            <dt>签发时间</dt>
-            <dd>{{ issuedAt }}</dd>
-          </div>
-          <div class="kv-row">
-            <dt>到期时间</dt>
-            <dd>{{ expiresAt }}</dd>
-          </div>
-          <div class="kv-row">
-            <dt>剩余有效期</dt>
-            <dd :class="isExpiringSoon ? 'warn' : 'strong'">{{ remaining }}</dd>
-          </div>
-        </dl>
-
-        <p class="note">
-          令牌在前端只做展示解析（不验签）。真正是否有效由后端判定，无效时接口返回 401
-          并自动跳回登录页。
-        </p>
-      </el-card>
     </div>
 
     <p class="footnote">
-      本页所有内容均为只读展示。修改密码、绑定邮箱等功能需要「验证旧密码」的后端接口，属独立需求。
+      本页为系统级状态展示，全部只读。修改个人资料与密码请到「个人中心」。
     </p>
   </div>
 </template>

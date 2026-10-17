@@ -21,8 +21,11 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
-/** 头像用用户名首字母：后端没有头像字段，色块 + 首字母比灰色占位图更好认 */
-const initial = computed(() => (auth.user?.username ?? '?').charAt(0).toUpperCase())
+/**
+ * 头像用「显示名」首字母：后端没有头像字段，
+ * 色块 + 首字母比灰色占位图更好认。显示名未设置时回退到用户名。
+ */
+const initial = computed(() => (auth.displayName || '?').charAt(0).toUpperCase())
 
 /** 面包屑：首页固定在前，当前页标题取自 meta.title */
 const crumbs = computed(() => {
@@ -34,6 +37,17 @@ const crumbs = computed(() => {
   }
   return list
 })
+
+/** 下拉菜单命令分发 */
+function handleCommand(command: string) {
+  if (command === 'profile') {
+    void router.push({ name: 'profile' })
+    return
+  }
+  if (command === 'logout') {
+    void handleLogout()
+  }
+}
 
 async function handleLogout() {
   try {
@@ -74,14 +88,19 @@ async function handleLogout() {
     </nav>
 
     <div class="header-right">
-      <el-dropdown trigger="click" @command="handleLogout">
+      <el-dropdown trigger="click" @command="handleCommand">
         <button class="user-btn" type="button">
           <span class="avatar" aria-hidden="true">{{ initial }}</span>
-          <span class="user-name">{{ auth.user?.username ?? '未登录' }}</span>
+          <span class="user-name">{{ auth.displayName || '未登录' }}</span>
+          <span v-if="auth.isAdmin" class="role-tag">管理员</span>
         </button>
         <template #dropdown>
           <el-dropdown-menu>
-            <el-dropdown-item command="logout">
+            <el-dropdown-item command="profile">
+              <AppIcon name="user" :size="15" />
+              <span class="dd-text">个人中心</span>
+            </el-dropdown-item>
+            <el-dropdown-item command="logout" divided>
               <AppIcon name="logout" :size="15" />
               <span class="dd-text">退出登录</span>
             </el-dropdown-item>
@@ -214,6 +233,17 @@ async function handleLogout() {
 
 .dd-text {
   margin-left: 6px;
+}
+
+/* 管理员标签：用品牌色的浅底 + 深字，和状态胶囊同一套观感 */
+.role-tag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--brand-ink);
+  background: rgba(15, 118, 110, 0.1);
+  flex: none;
 }
 
 /* 窄屏隐藏用户名只留头像，给面包屑腾空间 */

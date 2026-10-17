@@ -1,5 +1,6 @@
 package com.example.myapp.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 // 注意包名：MyBatis-Plus 3.5.9 起 ServiceImpl 从 extension.service.impl 迁到了 spring.service.impl
@@ -78,9 +79,17 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Override
     public void assignPassword(User user, String rawPassword) {
+        String hash = encodePassword(rawPassword);
+        if (hash != null) {
+            user.setPasswordHash(hash);
+        }
+    }
+
+    @Override
+    public String encodePassword(String rawPassword) {
         if (!StringUtils.hasText(rawPassword)) {
-            // 修改场景下留空 = 不改密码，保持原哈希不动
-            return;
+            // 修改场景下留空 = 不改密码
+            return null;
         }
         String password = rawPassword.trim();
         if (password.length() < PASSWORD_MIN_LENGTH) {
@@ -92,6 +101,27 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             throw new BizException(ErrorCode.PARAM_INVALID,
                     "密码过长（按 UTF-8 编码不得超过 " + BCRYPT_MAX_BYTES + " 字节，中文约 24 个字）");
         }
-        user.setPasswordHash(passwordEncoder.encode(password));
+        return passwordEncoder.encode(password);
+    }
+
+    @Override
+    public void overwriteEditable(Long id, String nickname, String email, String bio, Integer age,
+                                  String passwordHash) {
+        // 显式 set 每一列：null 也会被写成 NULL。
+        // 这正是与 updateById 的关键差异 —— 后者会跳过 null 字段，
+        // 导致「清空昵称」变成「不改昵称」。
+        LambdaUpdateWrapper<User> wrapper = Wrappers.<User>lambdaUpdate()
+                .eq(User::getId, id)
+                .set(User::getNickname, nickname)
+                .set(User::getEmail, email)
+                .set(User::getBio, bio)
+                .set(User::getAge, age);
+
+        // 密码是唯一「null 表示不改」的字段：不清空密码是刻意的，
+        // 否则一次不带密码的资料保存就会把账号锁死。
+        if (passwordHash != null) {
+            wrapper.set(User::getPasswordHash, passwordHash);
+        }
+        update(wrapper);
     }
 }

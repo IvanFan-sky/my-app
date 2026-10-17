@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { fetchMe, login as loginApi, register as registerApi } from '@/api/auth'
+import { ROLE_ADMIN, fetchMe, login as loginApi, register as registerApi } from '@/api/auth'
 import type { AuthUser, RegisterPayload } from '@/api/auth'
 
 const TOKEN_KEY = 'my-app.token'
@@ -41,10 +41,34 @@ export const useAuthStore = defineStore('auth', () => {
   /** 是否已持有令牌（不代表后端一定还认它，见 restore()） */
   const isAuthenticated = computed(() => token.value.length > 0)
 
+  /**
+   * 是否管理员。
+   *
+   * <p>**只用于界面控制**（隐藏菜单、路由拦截），不是安全边界 ——
+   * 用户可以改 localStorage 把自己伪装成管理员，但后端
+   * AdminOnlyInterceptor 会用令牌里的角色再判一次，伪造无效。
+   * 前端做这一层只是为了不让普通用户点进必然 403 的页面。
+   */
+  const isAdmin = computed(() => user.value?.role === ROLE_ADMIN)
+
+  /** 头像/头部展示用的名称：优先显示名，没设就回退用户名 */
+  const displayName = computed(() => user.value?.nickname || user.value?.username || '')
+
   function setSession(newToken: string, newUser: AuthUser) {
     token.value = newToken
     user.value = newUser
     localStorage.setItem(TOKEN_KEY, newToken)
+    localStorage.setItem(USER_KEY, JSON.stringify(newUser))
+  }
+
+  /**
+   * 用后端返回的最新用户信息刷新本地会话（令牌不变）。
+   *
+   * <p>改完昵称后必须调它，否则头部还显示旧名字 ——
+   * 页面局部刷新了、全局状态没变，看起来就像「没保存成功」。
+   */
+  function setUser(newUser: AuthUser) {
+    user.value = newUser
     localStorage.setItem(USER_KEY, JSON.stringify(newUser))
   }
 
@@ -107,5 +131,5 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { token, user, isAuthenticated, login, register, logout, restore }
+  return { token, user, isAuthenticated, isAdmin, displayName, setUser, login, register, logout, restore }
 })

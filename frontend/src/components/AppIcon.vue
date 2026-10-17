@@ -48,6 +48,11 @@ withDefaults(
       <rect x="13.5" y="13.5" width="7" height="7" rx="1.6" />
     </template>
 
+    <template v-else-if="name === 'user'">
+      <circle cx="12" cy="8" r="3.6" />
+      <path d="M5.2 19.8c.7-3.4 3.5-5.4 6.8-5.4s6.1 2 6.8 5.4" />
+    </template>
+
     <template v-else-if="name === 'users'">
       <circle cx="9" cy="8" r="3.4" />
       <path d="M2.8 19.5c.6-3.3 3.2-5.2 6.2-5.2s5.6 1.9 6.2 5.2" />

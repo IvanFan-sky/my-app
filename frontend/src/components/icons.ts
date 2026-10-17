@@ -11,6 +11,7 @@
 export type AppIconName =
   | 'dashboard'
   | 'users'
+  | 'user'
   | 'settings'
   | 'logout'
   | 'collapse'

@@ -25,9 +25,12 @@ DROP TABLE IF EXISTS `sys_user`;
 CREATE TABLE `sys_user`
 (
     `id`            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
-    `username`      VARCHAR(64)  NOT NULL COMMENT '用户名',
+    `username`      VARCHAR(64)  NOT NULL COMMENT '用户名（登录标识，唯一）',
+    `nickname`      VARCHAR(64)  DEFAULT NULL COMMENT '显示名（个人中心可改，不影响登录）',
     `password_hash` VARCHAR(100) NOT NULL COMMENT 'BCrypt 密码哈希（含盐，非明文）',
+    `role`          VARCHAR(16)  NOT NULL DEFAULT 'USER' COMMENT '角色：ADMIN=管理员，USER=普通用户',
     `email`         VARCHAR(128) DEFAULT NULL COMMENT '邮箱',
+    `bio`           VARCHAR(255) DEFAULT NULL COMMENT '个人简介',
     `age`           INT          DEFAULT NULL COMMENT '年龄',
     `deleted`       TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除：0=正常 1=已删除',
     `created_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -44,10 +47,15 @@ CREATE TABLE `sys_user`
 --   bob   / bob123
 --   carol / carol123
 -- 口令只在本注释里出现，库里存的是哈希。生产环境请勿使用这些账号。
-INSERT INTO `sys_user` (`username`, `password_hash`, `email`, `age`)
-VALUES ('alice', '$2a$10$srpv0d6jWUG02VZgIH6GheZEgz3jJRSuMXdjhgwET46v/C.IoyNgO', 'alice@example.com', 28),
-       ('bob', '$2a$10$tW7k1UvJIuyomTavZoAYx.m/Nan.ikoLECnBFiTg2M5BvIOqkf7Oq', 'bob@example.com', 31),
-       ('carol', '$2a$10$l/R.affKVKR.7vYvvTywWeabDYxculqFlM7VZZ5OcOZ.V5X8J3edy', 'carol@example.com', 24);
+-- alice 是唯一的管理员：role 必须显式给 ADMIN，否则管理接口全部 403，
+-- 全新安装后就没有任何账号能进「用户管理」。
+INSERT INTO `sys_user` (`username`, `nickname`, `password_hash`, `role`, `email`, `bio`, `age`)
+VALUES ('alice', '爱丽丝', '$2a$10$srpv0d6jWUG02VZgIH6GheZEgz3jJRSuMXdjhgwET46v/C.IoyNgO', 'ADMIN',
+        'alice@example.com', '管理员账号', 28),
+       ('bob', NULL, '$2a$10$tW7k1UvJIuyomTavZoAYx.m/Nan.ikoLECnBFiTg2M5BvIOqkf7Oq', 'USER',
+        'bob@example.com', NULL, 31),
+       ('carol', NULL, '$2a$10$l/R.affKVKR.7vYvvTywWeabDYxculqFlM7VZZ5OcOZ.V5X8J3edy', 'USER',
+        'carol@example.com', NULL, 24);
 
 -- 刻意不在这里 SELECT 全表：该语句只方便人肉看一眼，却会把结果混进构建/部署日志。
 -- 要确认结果，进客户端执行：SELECT id, username, email, age FROM sys_user ORDER BY id;

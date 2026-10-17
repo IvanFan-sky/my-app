@@ -5,6 +5,8 @@ import com.example.myapp.common.BizException;
 import com.example.myapp.common.ErrorCode;
 import com.example.myapp.dto.LoginForm;
 import com.example.myapp.dto.LoginResponse;
+import com.example.myapp.dto.PasswordForm;
+import com.example.myapp.dto.ProfileForm;
 import com.example.myapp.dto.RegisterForm;
 import com.example.myapp.dto.UserVO;
 import com.example.myapp.security.CurrentUser;
@@ -14,6 +16,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -67,5 +70,36 @@ public class AuthController {
             throw new BizException(ErrorCode.UNAUTHORIZED, "请先登录");
         }
         return ApiResponse.ok(authService.getCurrentUser(currentUser.id(), currentUser.username()));
+    }
+
+    /**
+     * PUT /api/auth/profile —— 修改**自己**的资料。
+     *
+     * <p>注意路径里**没有 id**，用户身份只从令牌取。
+     * 这样即使有人想改别人的资料，也没有可以篡改的参数 —— 越权在结构上不成立，
+     * 而不是靠一句「记得校验一下 id 是否等于自己」。
+     */
+    @PutMapping("/profile")
+    public ApiResponse<UserVO> updateProfile(@LoginUser CurrentUser currentUser,
+                                             @Valid @RequestBody ProfileForm form) {
+        if (currentUser == null) {
+            throw new BizException(ErrorCode.UNAUTHORIZED, "请先登录");
+        }
+        return ApiResponse.ok(authService.updateProfile(currentUser.id(), form));
+    }
+
+    /**
+     * PUT /api/auth/password —— 修改**自己**的密码，需要提供原密码。
+     *
+     * <p>原密码不正确返回 4000（不是 4010），避免前端把它当成登录失效而强制登出。
+     */
+    @PutMapping("/password")
+    public ApiResponse<Void> changePassword(@LoginUser CurrentUser currentUser,
+                                            @Valid @RequestBody PasswordForm form) {
+        if (currentUser == null) {
+            throw new BizException(ErrorCode.UNAUTHORIZED, "请先登录");
+        }
+        authService.changePassword(currentUser.id(), form);
+        return ApiResponse.ok();
     }
 }

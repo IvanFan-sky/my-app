@@ -177,6 +177,7 @@ backend/src/main/java/com/example/myapp/
 ├── entity/                 # 与数据库表一一对应
 ├── mapper/                 # 继承 BaseMapper，复杂 SQL 放 resources/mapper/*.xml
 ├── security/               # JwtTokenProvider（签发/解析）、AuthInterceptor（校验令牌）、
+│                           # AdminOnlyInterceptor（/api/users/** 要求 ADMIN）、AuthResponses（拦截器写错误响应）、
 │                           # CurrentUser + LoginUser + CurrentUserArgumentResolver（注入登录用户）
 └── service/ + service/impl # 业务逻辑，继承 IService / ServiceImpl
 
@@ -193,7 +194,7 @@ frontend/src/
 ├── router/       # 路由表 + 未登录守卫（public 页面：/login、/register）
 ├── stores/       # Pinia store：auth.ts 登录态、app.ts 侧栏折叠与连通性
 ├── utils/        # jwt.ts（仅用于展示的令牌载荷解析）
-├── views/        # 页面：LoginView / RegisterView / DashboardView / UsersView / SettingsView
+├── views/        # 页面：Login/Register/Dashboard/Users/Profile/Settings
 ├── bootstrap.ts  # 把 api 层的令牌注入与 401 回调接到 store / 路由上
 ├── App.vue       # 只决定用哪种外壳（免登录页 vs AppLayout）
 └── main.ts       # 应用装配
@@ -237,6 +238,16 @@ frontend/src/
 - **时间字段**由数据库维护（`DEFAULT CURRENT_TIMESTAMP` / `ON UPDATE CURRENT_TIMESTAMP`），
   实体上不加填充注解。MyBatis-Plus 默认的 `NOT_NULL` 插入策略会把 null 字段排除在 INSERT 外，
   数据库默认值因此生效。
+  另外实体上必须给 `createdAt` / `updatedAt` 标
+  `@TableField(insertStrategy = NEVER, updateStrategy = NEVER)`：
+  不标的话，`updateById` 会把从库里读出来的**旧 `updated_at` 显式写回 SET 子句**，
+  反而把数据库的 `ON UPDATE` 压掉 —— 表现是「数据改了但 `updated_at` 一直不变」（实测踩到）。
+  这不是让应用接管时间，而是让应用**不去碰**它。
+- **`updateById` 无法把字段改成 null**（实测踩到，且很容易忽略）。
+  默认 NOT_NULL 策略会把 null 字段排除在 SET 之外，于是「把昵称清空」变成「不修改昵称」，
+  用户点清空后刷新值还在。需要「可清空」语义时用显式 set 的更新包装器：
+  `Wrappers.<User>lambdaUpdate().eq(...).set(User::getNickname, null)`（见 `UserService.overwriteEditable`）。
+  **语义要分清**：`nickname/email/bio/age` 是「不传就清空」，`password`/`role` 是「不传就不改」。
 - **分页必须走 `IService.page()`**，前提是 `MybatisPlusConfig` 里注册了 `PaginationInnerInterceptor`。
   少了它不会报错，而是悄无声息地查全表 —— 改分页相关代码时务必确认插件还在。
 - **逻辑删除**：`@TableLogic` 标注 `deleted`，`removeById` 只置 1。所有查询自动带 `deleted = 0`。
@@ -281,7 +292,9 @@ frontend/src/
 |---|---|---|---|
 | POST | `/api/auth/login` | 否 | 入参 `{username, password}`，成功返回 `{token, tokenType, expiresIn, user}` |
 | POST | `/api/auth/register` | 否 | 入参 `{username, password, email?}`，**成功也返回令牌（注册即登录）** |
-| GET | `/api/auth/me` | 是 | 返回当前令牌对应的用户，用于刷新页面后确认登录态 |
+| GET | `/api/auth/me` | 是 | 返回当前令牌对应的用户（含 `role`/`nickname`/`bio`） |
+| PUT | `/api/auth/profile` | 是 | 改**自己**的 `nickname`/`email`/`bio`/`age`。**路径无 id，身份只从令牌取** |
+| PUT | `/api/auth/password` | 是 | 改自己的密码，必须传 `oldPassword` |
 | GET | `/api/health` | 否 | 健康检查（白名单，供前端探测后端是否可达） |
 
 除白名单（`/api/auth/login`、`/api/auth/register`、`/api/health`）外，`/api/**` 全部需要
@@ -314,6 +327,29 @@ frontend/src/
 
 `keyword` 的邮箱匹配**没有索引**（`sys_user` 只有 username 唯一索引与 created_at 普通索引），
 会走全表扫描。当前数据量可接受；量大了应给 email 建索引或改前缀匹配。
+
+### 权限模型（重要）
+
+**`/api/users/**` 整组接口只对 `role = ADMIN` 开放**，非管理员返回 HTTP 403 + `code=4030`。
+实现在 `security/AdminOnlyInterceptor`，注册在 `/api/users/**` 上，**顺序必须在
+`AuthInterceptor` 之后**（后者负责写入 `CurrentUser`，前者读它判角色；顺序反了会把管理员也拦掉）。
+
+个人中心的两个接口**不校验角色**（任何登录用户都能改自己），安全性由结构保证：
+路径里没有 id，userId 只从令牌取，因此不存在「改别人的资料」这条路径。
+
+**三道自我保护的规则，改代码时不要移除**：
+
+1. **不能修改自己的角色** —— 否则唯一管理员把自己降级后就再没人能进用户管理（只能改库）。
+2. **不能删除自己的账号** —— 删掉后当前令牌立即失效，等于把自己踢出系统。
+3. **个人资料接口不收 role / username / password 字段** —— DTO 里根本没有这些字段，
+   客户端塞进请求体也会被 Jackson 忽略。这是「不可能提权」的结构保证，
+   比「收到后再判断要不要用」更难写错。`docs/verify-profile.ps1` 第 4 组专门验这条。
+
+**改密码失败返回 4000 而不是 4010**：前端 http 拦截器见到 4010 会清登录态并跳登录页，
+用户只是打错一次旧密码却被登出，体验极差。
+
+**已知限制**：改密码后，别处已签发的旧令牌在过期前仍然有效。
+无状态 JWT 没有服务端会话可销，要做到即时失效需要 Redis 黑名单（独立需求）。
 
 ---
 
@@ -362,6 +398,13 @@ frontend/src/
   需把唯一索引改成 `(username, deleted)` 组合索引，或改为物理删除。**改这块前先确认需求。**
 - 表结构变更目前靠手改 `sql/init.sql`。**表变多或开始多人协作后，应切换到 Flyway / Liquibase**，
   别继续用「改 init.sql + 手动执行」的方式。
+- **`init.sql` 只用于「全新安装」（它会 DROP 表）**。已有数据的环境请用 `sql/migrate-*.sql`：
+  目前有一个 `migrate-2026-10-17-profile-role.sql`，加了 `nickname` / `role` / `bio` 三列，
+  **不 DROP、不丢数据**，并把 alice 设为 ADMIN。
+  注意 `ALTER TABLE ... ADD COLUMN` 不可重入，重复执行会报 `Duplicate column name`，这是预期的。
+- `sys_user` 现有字段：`id` / `username`（登录标识，唯一）/ `nickname`（显示名）/
+  `password_hash` / `role`（ADMIN/USER）/ `email` / `bio` / `age` / `deleted` / 时间戳。
+  **`username` 与 `nickname` 是两件事**：前者用于登录，后者只用于展示，个人中心只让改后者。
 
 ---
 

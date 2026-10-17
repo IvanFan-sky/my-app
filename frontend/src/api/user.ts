@@ -4,7 +4,13 @@ import { request } from './http'
 export interface User {
   id: number
   username: string
+  /** 显示名，未设置为 null */
+  nickname?: string | null
+  /** ADMIN / USER */
+  role?: 'ADMIN' | 'USER'
   email?: string | null
+  /** 个人简介 */
+  bio?: string | null
   age?: number | null
   createdAt?: string
   updatedAt?: string
@@ -18,12 +24,18 @@ export interface PageResult<T> {
   size: number
 }
 
-/** 对应后端 dto.UserForm。password 仅新增时必填，修改时留空表示不改密码 */
+/**
+ * 对应后端 dto.UserForm。password 仅新增时必填，修改时留空表示不改密码；
+ * role 不传表示不改（编辑自己时前端会刻意不传，后端也拒绝改自己角色）。
+ */
 export interface UserForm {
   username: string
   password?: string
+  nickname?: string
   email?: string
+  bio?: string
   age?: number
+  role?: 'ADMIN' | 'USER'
 }
 
 /** 对应后端 dto.UserStatsVO */

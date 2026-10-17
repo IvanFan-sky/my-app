@@ -50,4 +50,32 @@ public interface UserService extends IService<User> {
      * @param rawPassword 明文密码；为 null / 空白时表示「不改密码」，直接返回
      */
     void assignPassword(User user, String rawPassword);
+
+    /**
+     * 校验并加密密码，返回 BCrypt 哈希。
+     *
+     * <p>与 {@link #assignPassword} 共用同一套校验（最少 6 位、UTF-8 不超过 72 字节），
+     * 区别是它只返回哈希、不碰实体 —— 更新路径需要「哈希 + 显式 set」的组合，
+     * 见 {@link #overwriteEditable}。
+     *
+     * @param rawPassword 明文密码
+     * @return BCrypt 哈希；rawPassword 为 null / 空白时返回 null（表示不改密码）
+     * @throws com.example.myapp.common.BizException 密码不合规（4000）
+     */
+    String encodePassword(String rawPassword);
+
+    /**
+     * 覆盖用户的可编辑字段（显示名 / 邮箱 / 简介 / 年龄）。
+     *
+     * <p><b>为什么不能用 {@code updateById}</b>：MyBatis-Plus 默认的 NOT_NULL 更新策略
+     * 会把值为 null 的字段排除在 SET 子句之外，于是「把昵称置空」会变成「不修改昵称」 ——
+     * 用户点清空后刷新，值还在（实测踩到）。这里改用显式 set 的 UpdateWrapper，
+     * 每一列都写，null 也照写，语义才是「覆盖」。
+     *
+     * <p>时间字段不在 set 列表里，因此仍由数据库的 ON UPDATE 自动更新。
+     *
+     * @param passwordHash 已编码的密码哈希；**null 表示不改密码**（这一点与其他字段不同）
+     */
+    void overwriteEditable(Long id, String nickname, String email, String bio, Integer age,
+                           String passwordHash);
 }

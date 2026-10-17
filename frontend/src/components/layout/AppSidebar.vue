@@ -9,8 +9,10 @@
  * 展开/收起要有个不闪烁的过渡，v-if 会让文字瞬间出现，观感很跳。
  * 同时给缩略状态补上 title 属性，鼠标悬停仍能看到名称。
  */
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
+import { useAuthStore } from '@/stores/auth'
 
 const props = defineProps<{
   collapsed: boolean
@@ -18,12 +20,25 @@ const props = defineProps<{
 
 const route = useRoute()
 
-/** 主菜单。name 与路由 name 必须一致，否则选中态匹配不上 */
+const auth = useAuthStore()
+
+/**
+ * 主菜单。name 与路由 name 必须一致，否则选中态匹配不上。
+ *
+ * <p>requiresAdmin 的项对普通用户**不显示**：留着让他点进去吃 403 只是徒增困惑。
+ * 这只是界面层的隐藏，后端 AdminOnlyInterceptor 才是真正的权限边界。
+ */
 const NAV_ITEMS = [
-  { name: 'dashboard', label: '工作台', icon: 'dashboard' as const },
-  { name: 'users', label: '用户管理', icon: 'users' as const },
-  { name: 'settings', label: '系统设置', icon: 'settings' as const },
+  { name: 'dashboard', label: '工作台', icon: 'dashboard' as const, requiresAdmin: false },
+  { name: 'users', label: '用户管理', icon: 'users' as const, requiresAdmin: true },
+  { name: 'settings', label: '系统设置', icon: 'settings' as const, requiresAdmin: false },
+  { name: 'profile', label: '个人中心', icon: 'user' as const, requiresAdmin: false },
 ]
+
+/** 按当前用户权限过滤后的菜单 */
+const navItems = computed(() =>
+  NAV_ITEMS.filter((item) => !item.requiresAdmin || auth.isAdmin),
+)
 
 /** 当前路由是否属于某一菜单项（子路由也能高亮父项） */
 function isActive(name: string) {
@@ -46,7 +61,7 @@ function isActive(name: string) {
 
     <nav class="nav-menu" aria-label="主导航">
       <RouterLink
-        v-for="item in NAV_ITEMS"
+        v-for="item in navItems"
         :key="item.name"
         :to="{ name: item.name }"
         class="nav-item"

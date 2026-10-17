@@ -9,12 +9,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 
 /**
  * 鉴权拦截器：校验 {@code Authorization: Bearer <token>}，通过则把
@@ -79,19 +77,21 @@ public class AuthInterceptor implements HandlerInterceptor {
             return reject(response, "登录已失效，请重新登录");
         }
 
-        request.setAttribute(CurrentUser.ATTRIBUTE_NAME, new CurrentUser(user.getId(), user.getUsername()));
+        // role 来自缓存里的 UserVO：管理员被降级后，缓存失效的下一次请求即生效，
+        // 不需要等令牌过期
+        request.setAttribute(CurrentUser.ATTRIBUTE_NAME,
+                new CurrentUser(user.getId(), user.getUsername(), user.getRole()));
         return true;
     }
 
-    /** 写 HTTP 401 + 统一响应体，并终止后续处理 */
+    /**
+     * 写 HTTP 401 + 统一响应体，并终止后续处理。
+     *
+     * <p>具体拼接交给 {@link AuthResponses}：AdminOnlyInterceptor 也要写同样的结构，
+     * 抽到一处才不会出现「两个拦截器返回的 JSON 长得不一样」。
+     */
     private boolean reject(HttpServletResponse response, String message) throws IOException {
-        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        // 手工拼 JSON：这里不能用 ObjectMapper（拦截器不是 Spring MVC 的返回值处理流程），
-        // message 是本类内写死的常量，不含用户输入，因此没有注入风险
-        response.getWriter().write("{\"code\":" + ErrorCode.UNAUTHORIZED
-                + ",\"message\":\"" + message + "\",\"data\":null}");
-        return false;
+        return AuthResponses.writeError(response, HttpServletResponse.SC_UNAUTHORIZED,
+                ErrorCode.UNAUTHORIZED, message);
     }
 }

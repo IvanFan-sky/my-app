@@ -6,6 +6,8 @@ import com.example.myapp.common.ErrorCode;
 import com.example.myapp.dto.LoginForm;
 import com.example.myapp.dto.LoginResponse;
 import com.example.myapp.cache.UserCache;
+import com.example.myapp.dto.PasswordForm;
+import com.example.myapp.dto.ProfileForm;
 import com.example.myapp.dto.RegisterForm;
 import com.example.myapp.dto.UserVO;
 import com.example.myapp.entity.User;
@@ -117,6 +119,78 @@ public class AuthServiceImpl implements AuthService {
             throw new BizException(ErrorCode.UNAUTHORIZED, "登录已失效，请重新登录");
         }
         return UserVO.from(user);
+    }
+
+    @Override
+    public UserVO updateProfile(Long userId, ProfileForm form) {
+        User user = userService.getById(userId);
+        if (user == null) {
+            // 令牌有效但用户已删除：与 getCurrentUser 保持同一语义
+            log.warn("修改资料失败：用户不存在或已删除 userId={}", userId);
+            throw new BizException(ErrorCode.UNAUTHORIZED, "登录已失效，请重新登录");
+        }
+
+        // 留空一律写 null，而不是空串：
+        // 「没填邮箱」和「邮箱是空字符串」在展示与后续唯一性判断上语义不同，
+        // 混用会让前端不得不到处判断空串。
+        //
+        // 这里**必须**用 overwriteEditable：updateById 会跳过 null 字段，
+        // 于是「清空显示名」会变成「不改显示名」，用户点清空后值还在（实测踩到）。
+        userService.overwriteEditable(userId,
+                textOrNull(form.getNickname()),
+                textOrNull(form.getEmail()),
+                textOrNull(form.getBio()),
+                form.getAge(),
+                null);
+        // 缓存里存的是 UserVO（含 nickname/role/updatedAt），必须失效，
+        // 否则资料页改完、刷新后读到的还是旧值
+        userCache.evict(userId);
+
+        // 重新读一次以拿到数据库维护的 updated_at。
+        // 直接用内存里的 user 也能返回，但 updatedAt 会是旧值 —— 前端会显示成「没保存成功」。
+        User fresh = userService.getById(userId);
+        log.info("资料已更新 userId={} username={}", userId, user.getUsername());
+        return UserVO.from(fresh);
+    }
+
+    @Override
+    public void changePassword(Long userId, PasswordForm form) {
+        User user = userService.getById(userId);
+        if (user == null) {
+            log.warn("修改密码失败：用户不存在或已删除 userId={}", userId);
+            throw new BizException(ErrorCode.UNAUTHORIZED, "登录已失效，请重新登录");
+        }
+
+        // 必须验原密码：否则令牌一旦泄露（或未登出共用电脑），对方可以直接改密码锁死账号
+        if (user.getPasswordHash() == null
+                || !passwordEncoder.matches(form.getOldPassword(), user.getPasswordHash())) {
+            log.info("修改密码失败：原密码不正确 userId={}", userId);
+            // 4000 而不是 4010：见 AuthService.changePassword 的注释
+            throw new BizException(ErrorCode.PARAM_INVALID, "原密码不正确");
+        }
+
+        // 新旧相同直接拒绝。不校验也能过，但用户会觉得「改了却好像没变」，
+        // 而且白白多一次哈希写入。
+        if (passwordEncoder.matches(form.getNewPassword(), user.getPasswordHash())) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "新密码不能与原密码相同");
+        }
+
+        // 复用同一套密码校验（最少 6 位、UTF-8 不超过 72 字节）。
+        // 只改密码，其余可编辑字段按原值回写，避免被覆盖成 null
+        userService.overwriteEditable(user.getId(),
+                user.getNickname(), user.getEmail(), user.getBio(), user.getAge(),
+                userService.encodePassword(form.getNewPassword()));
+        // 密码不进缓存，但 updated_at 变了，一并失效保证一致
+        userCache.evict(userId);
+
+        // 注意：这里**不**吊销其它会话。无状态 JWT 无服务端会话可销，
+        // 旧令牌在过期前依然有效；要做到即时失效需要 Redis 黑名单（独立需求）。
+        log.info("密码已修改 userId={} username={}", userId, user.getUsername());
+    }
+
+    /** 去掉首尾空白；空白一律视为未填写（写 null 而不是空串） */
+    private static String textOrNull(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
     }
 
     /**

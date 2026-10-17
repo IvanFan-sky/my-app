@@ -1,6 +1,8 @@
 package com.example.myapp.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -29,6 +31,12 @@ public class User {
     private String username;
 
     /**
+     * 显示名。个人中心可改，**不影响登录**（登录始终用 username）。
+     * 允许为 null：未设置时前端回退显示 username。
+     */
+    private String nickname;
+
+    /**
      * BCrypt 密码哈希（含盐，非明文）。
      *
      * <p>@JsonIgnore 是第二道防线：真正的防线是「接口只返回 UserVO」。
@@ -38,14 +46,40 @@ public class User {
     @JsonIgnore
     private String passwordHash;
 
+    /**
+     * 角色：{@link com.example.myapp.common.UserRole#ADMIN} /
+     * {@link com.example.myapp.common.UserRole#USER}。
+     *
+     * <p>用 String 而不是枚举，原因见 UserRole 的注释。
+     * **任何来自请求体的赋值都必须先过 UserRole.isValid()**，否则等于允许写入任意字符串。
+     */
+    private String role;
+
     private String email;
+
+    private String bio;
 
     private Integer age;
 
-    /** 只读：数据库写入 */
+    /**
+     * 只读：数据库写入。
+     *
+     * <p>{@code FieldStrategy.NEVER} 的意思是「INSERT / UPDATE 语句里都不要带这一列」，
+     * 完全交给数据库的 DEFAULT CURRENT_TIMESTAMP。
+     *
+     * <p>不加会怎样（实测踩到）：{@code updateById} 默认的 NOT_NULL 策略发现
+     * 实体上 updatedAt 非空（从库里读出来的旧值），就把它拼进 UPDATE 的 SET 子句，
+     * 于是显式写入旧时间戳，**反而把数据库的 ON UPDATE CURRENT_TIMESTAMP 压掉了** ——
+     * 表现为「数据改了但 updated_at 一直不变」。
+     *
+     * <p>这与 AGENTS.md 「时间字段由数据库维护」的约定一致：
+     * 不是让应用接管时间，而是让应用**不去碰**它。
+     */
+    @TableField(insertStrategy = FieldStrategy.NEVER, updateStrategy = FieldStrategy.NEVER)
     private LocalDateTime createdAt;
 
-    /** 只读：数据库写入 */
+    /** 只读：数据库写入，规则同 createdAt */
+    @TableField(insertStrategy = FieldStrategy.NEVER, updateStrategy = FieldStrategy.NEVER)
     private LocalDateTime updatedAt;
 
     /** 逻辑删除标记，0=正常 1=已删除；@TableLogic 让查询自动带上 deleted = 0 */

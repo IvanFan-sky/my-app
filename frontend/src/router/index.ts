@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 
@@ -49,7 +50,15 @@ const router = createRouter({
           path: 'users',
           name: 'users',
           component: () => import('@/views/UsersView.vue'),
-          meta: { title: '用户管理' },
+          // requiresAdmin：非管理员直接进不去。这只是体验层拦截，
+          // 后端 AdminOnlyInterceptor 才是真正的权限边界。
+          meta: { title: '用户管理', requiresAdmin: true },
+        },
+        {
+          path: 'profile',
+          name: 'profile',
+          component: () => import('@/views/ProfileView.vue'),
+          meta: { title: '个人中心' },
         },
         {
           path: 'settings',
@@ -88,6 +97,13 @@ router.beforeEach((to) => {
   }
   if (!auth.isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } }
+  }
+
+  // 管理员专属页面：非管理员别让他进去再吃一个 403。
+  // 这里同样只是体验层 —— 真正的拦截在后端。
+  if (to.meta.requiresAdmin && !auth.isAdmin) {
+    ElMessage.warning('该页面需要管理员权限')
+    return { name: 'dashboard' }
   }
   return true
 })

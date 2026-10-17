@@ -38,12 +38,26 @@ const formRef = ref<FormInstance>()
 
 const isEdit = ref(false)
 
-const form = reactive<{ username: string; password: string; email: string; age?: number }>({
+const form = reactive<{
+  username: string
+  password: string
+  nickname: string
+  email: string
+  bio: string
+  age?: number
+  role: 'ADMIN' | 'USER'
+}>({
   username: '',
   password: '',
+  nickname: '',
   email: '',
+  bio: '',
   age: undefined,
+  role: 'USER',
 })
+
+/** 编辑自己时禁用角色选择：后端也会拒，这里只是别让人白填 */
+const editingSelf = ref(false)
 
 /**
  * 校验规则的差异点：新增时密码必填，编辑时留空表示「不改密码」。
@@ -84,8 +98,11 @@ const passwordPlaceholder = ref('必填，至少 6 位')
 function resetForm() {
   form.username = ''
   form.password = ''
+  form.nickname = ''
   form.email = ''
+  form.bio = ''
   form.age = undefined
+  form.role = 'USER'
   // 清掉上一次的校验红字，否则重新打开弹窗会残留
   formRef.value?.clearValidate()
 }
@@ -93,6 +110,7 @@ function resetForm() {
 function openCreate() {
   editingId.value = null
   isEdit.value = false
+  editingSelf.value = false
   rules.value = buildRules(false)
   passwordPlaceholder.value = '必填，至少 6 位'
   resetForm()
@@ -108,11 +126,15 @@ function openCreate() {
 async function openEdit(row: User) {
   editingId.value = row.id
   isEdit.value = true
+  editingSelf.value = auth.user?.id === row.id
   rules.value = buildRules(true)
   passwordPlaceholder.value = '留空表示不修改密码'
   form.username = row.username
+  form.nickname = row.nickname ?? ''
   form.email = row.email ?? ''
+  form.bio = row.bio ?? ''
   form.age = row.age ?? undefined
+  form.role = row.role === 'ADMIN' ? 'ADMIN' : 'USER'
   form.password = ''
   dialogVisible.value = true
   try {
@@ -120,8 +142,11 @@ async function openEdit(row: User) {
     // 期间用户可能已经点了别的行，校验一下再覆盖，避免写错对象
     if (editingId.value === row.id) {
       form.username = fresh.username
+      form.nickname = fresh.nickname ?? ''
       form.email = fresh.email ?? ''
+      form.bio = fresh.bio ?? ''
       form.age = fresh.age ?? undefined
+      form.role = fresh.role === 'ADMIN' ? 'ADMIN' : 'USER'
     }
   } catch (error) {
     // 详情拉取失败不影响编辑（列表数据已经回填了），只提示
@@ -140,22 +165,25 @@ async function submitForm() {
 
   submitting.value = true
   try {
+    const payload = {
+      username: form.username.trim(),
+      nickname: form.nickname.trim() || undefined,
+      email: form.email.trim() || undefined,
+      bio: form.bio.trim() || undefined,
+      age: form.age,
+      // 编辑自己时不发 role：后端会拒绝「改自己的角色」，
+      // 这里干脆不传，避免每次都吃一个 4000
+      role: editingSelf.value ? undefined : form.role,
+    }
     if (isEdit.value && editingId.value !== null) {
       await updateUser(editingId.value, {
-        username: form.username.trim(),
+        ...payload,
         // 留空就不发这个字段，后端据此判断「不改密码」
         password: form.password || undefined,
-        email: form.email.trim() || undefined,
-        age: form.age,
       })
       ElMessage.success('修改成功')
     } else {
-      await createUser({
-        username: form.username.trim(),
-        password: form.password,
-        email: form.email.trim() || undefined,
-        age: form.age,
-      })
+      await createUser({ ...payload, password: form.password })
       ElMessage.success('新增成功')
       query.current = 1
     }
@@ -283,9 +311,23 @@ onMounted(loadUsers)
               <span class="row-avatar" aria-hidden="true">
                 {{ row.username.charAt(0).toUpperCase() }}
               </span>
-              {{ row.username }}
+              <span class="name-stack">
+                <span class="name-main">{{ row.nickname || row.username }}</span>
+                <span v-if="row.nickname" class="name-sub">{{ row.username }}</span>
+              </span>
               <el-tag v-if="isSelf(row)" size="small" type="info" effect="plain">当前登录</el-tag>
             </span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="role" label="角色" width="100">
+          <template #default="{ row }">
+            <el-tag
+              size="small"
+              :type="row.role === 'ADMIN' ? 'primary' : 'info'"
+              :effect="row.role === 'ADMIN' ? 'light' : 'plain'"
+            >
+              {{ row.role === 'ADMIN' ? '管理员' : '普通用户' }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="email" label="邮箱" min-width="200">
@@ -341,7 +383,7 @@ onMounted(loadUsers)
     <el-dialog
       v-model="dialogVisible"
       :title="isEdit ? '编辑用户' : '新增用户'"
-      width="440px"
+      width="480px"
       :close-on-click-modal="false"
     >
       <el-form
@@ -353,6 +395,9 @@ onMounted(loadUsers)
       >
         <el-form-item label="用户名" prop="username">
           <el-input v-model="form.username" placeholder="请输入用户名" clearable />
+        </el-form-item>
+        <el-form-item label="显示名" prop="nickname">
+          <el-input v-model="form.nickname" placeholder="选填，留空则显示用户名" clearable />
         </el-form-item>
         <el-form-item label="密码" prop="password">
           <el-input
@@ -368,6 +413,23 @@ onMounted(loadUsers)
         </el-form-item>
         <el-form-item label="年龄" prop="age">
           <el-input-number v-model="form.age" :min="0" :max="200" />
+        </el-form-item>
+        <el-form-item label="个人简介" prop="bio">
+          <el-input
+            v-model="form.bio"
+            type="textarea"
+            :rows="2"
+            maxlength="255"
+            show-word-limit
+            placeholder="选填"
+          />
+        </el-form-item>
+        <el-form-item label="角色" prop="role">
+          <el-select v-model="form.role" :disabled="editingSelf" style="width: 100%">
+            <el-option label="普通用户" value="USER" />
+            <el-option label="管理员" value="ADMIN" />
+          </el-select>
+          <div v-if="editingSelf" class="field-hint">不能修改自己的角色</div>
         </el-form-item>
       </el-form>
 
@@ -445,6 +507,29 @@ onMounted(loadUsers)
 }
 
 .muted {
+  color: var(--el-text-color-placeholder);
+}
+
+/* 昵称在上、登录名在下：列表中同时能看到「显示成什么」和「登录用什么」 */
+.name-stack {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+
+.name-main {
+  color: var(--el-text-color-primary);
+}
+
+.name-sub {
+  font-size: 11px;
+  color: var(--el-text-color-placeholder);
+}
+
+/* 字段下方的补充说明，比 placeholder 更明确 */
+.field-hint {
+  margin-top: 4px;
+  font-size: 12px;
   color: var(--el-text-color-placeholder);
 }
 

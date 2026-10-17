@@ -2,6 +2,8 @@ package com.example.myapp.service;
 
 import com.example.myapp.dto.LoginForm;
 import com.example.myapp.dto.LoginResponse;
+import com.example.myapp.dto.PasswordForm;
+import com.example.myapp.dto.ProfileForm;
 import com.example.myapp.dto.RegisterForm;
 import com.example.myapp.dto.UserVO;
 
@@ -48,4 +50,36 @@ public interface AuthService {
      * @throws com.example.myapp.common.BizException 用户不存在或已被逻辑删除（4010）
      */
     UserVO getCurrentUser(Long userId, String authenticatedName);
+
+    /**
+     * 修改**自己**的资料（显示名 / 邮箱 / 简介 / 年龄）。
+     *
+     * <p>userId 只能来自令牌，调用方不传路径参数 —— 这是「不可能越权」的结构保证。
+     * 可改字段由 {@link ProfileForm} 白名单限定，username / role / password 不在其中。
+     *
+     * @param userId 当前登录用户主键（来自令牌）
+     * @param form   资料表单（已通过 @Valid）
+     * @return 更新后的用户信息（含新的 updatedAt）
+     * @throws com.example.myapp.common.BizException 用户不存在（4010）
+     */
+    UserVO updateProfile(Long userId, ProfileForm form);
+
+    /**
+     * 修改**自己**的密码，必须先验原密码。
+     *
+     * <p>失败语义：
+     * <ul>
+     *   <li>原密码不正确 → 4000。**刻意不用 4010** —— 前端见到 4010 会登出，
+     *       输错一次旧密码就被踢出去体验很差；</li>
+     *   <li>新密码不合规（长度 / BCrypt 72 字节上限）→ 4000，由 UserService 校验；</li>
+     *   <li>新密码与原密码相同 → 4000。</li>
+     * </ul>
+     *
+     * <p><b>已知限制</b>：改密码后，别处已签发的旧令牌在过期前仍然有效。
+     * 无状态 JWT 无法主动失效，除非引入 Redis 黑名单，属独立需求。
+     *
+     * @param userId 当前登录用户主键（来自令牌）
+     * @param form   新旧密码（已通过 @Valid）
+     */
+    void changePassword(Long userId, PasswordForm form);
 }

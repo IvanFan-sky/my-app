@@ -25,13 +25,32 @@ public class UserForm {
     @Size(max = 64, message = "用户名最长 64 个字符")
     private String username;
 
+    /** 显示名。选填，留空表示不显示（前端回退显示 username） */
+    @Size(max = 64, message = "显示名最长 64 个字符")
+    private String nickname;
+
     @Email(message = "邮箱格式不正确")
     @Size(max = 128, message = "邮箱最长 128 个字符")
     private String email;
 
+    @Size(max = 255, message = "个人简介最长 255 个字符")
+    private String bio;
+
     @Min(value = 0, message = "年龄不能小于 0")
     @Max(value = 200, message = "年龄不能大于 200")
     private Integer age;
+
+    /**
+     * 角色：ADMIN / USER。
+     *
+     * <p>仅「管理员维护用户」这条路径使用；个人中心改资料走 {@link ProfileForm}，
+     * 那里根本没有 role 字段 —— 否则任何用户都能把自己提权成管理员。
+     *
+     * <p>这里不加注解校验，而是由 UserController 用
+     * {@link com.example.myapp.common.UserRole#isValid} 做白名单判断：
+     * 注解表达不了「只在允许的两个值里挑」，而 @Pattern 写正则又会和常量两处维护。
+     */
+    private String role;
 
     /**
      * 明文密码，仅用于传输，不落库（落库的是 BCrypt 哈希）。
