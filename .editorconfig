@@ -1,0 +1,28 @@
+# 编辑器统一约定（VS Code / IDEA / WebStorm 都原生支持）
+#
+# 目的：减少「只改了缩进/换行符」的假 diff。
+# 注意换行符由 .gitattributes 决定（仓库与工作区一律 LF），这里保持一致。
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# Java / SQL 习惯 4 空格，与前端 2 空格不同
+[*.{java,sql}]
+indent_size = 4
+
+[*.md]
+# Markdown 里的行尾双空格是「硬换行」语法，删掉会改变渲染结果
+trim_trailing_whitespace = false
+
+[*.{yml,yaml}]
+indent_size = 2
+
+# Windows 专用脚本按 .gitattributes 保持 CRLF，编辑器不要改成 LF
+[*.{ps1,bat,cmd}]
+end_of_line = crlf

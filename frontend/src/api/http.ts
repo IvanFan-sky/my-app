@@ -76,7 +76,7 @@ http.interceptors.response.use(
       onUnauthorized?.()
       return Promise.reject(new Error('登录已失效，请重新登录'))
     }
-    const message = status ? `HTTP ${status}` : ((error?.message as string) || '网络错误')
+    const message = status ? `HTTP ${status}` : (error?.message as string) || '网络错误'
     return Promise.reject(new Error(message))
   },
 )

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import AuthLayout from '@/components/AuthLayout.vue'
@@ -28,7 +27,7 @@ const form = reactive({
 
 // 与后端 RegisterForm 保持一致：用户名必填 ≤64，密码必填 6~72，邮箱选填。
 // 注意这里只能按「字符数」校验，后端还会按 UTF-8 字节数判 72 字节上限
-// （中文一个字 3 字节）。两者不同源，所以中文长密码可能通过前端、被后端拒 —— 
+// （中文一个字 3 字节）。两者不同源，所以中文长密码可能通过前端、被后端拒 ——
 // 那种情况后端会返回明确的 4000 文案，界面直接展示即可，不必在前端重复实现字节计算。
 const rules: FormRules<typeof form> = {
   username: [
@@ -172,8 +171,6 @@ async function submit() {
       </el-form-item>
     </el-form>
 
-    <template #switch>
-      已经有账号了？<RouterLink to="/login">返回登录</RouterLink>
-    </template>
+    <template #switch> 已经有账号了？<RouterLink to="/login">返回登录</RouterLink> </template>
   </AuthLayout>
 </template>

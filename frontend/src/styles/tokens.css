@@ -70,13 +70,9 @@
   --app-radius-card: 20px;
   --app-radius-inner: 12px;
   /* 阴影用带青的冷色，比中性灰更贴合清爽调性 */
-  --app-shadow-card:
-    0 1px 2px rgba(15, 40, 55, 0.06),
-    0 24px 60px -20px rgba(15, 40, 55, 0.24);
+  --app-shadow-card: 0 1px 2px rgba(15, 40, 55, 0.06), 0 24px 60px -20px rgba(15, 40, 55, 0.24);
   /* 列表页卡片比登录卡片轻一档：一页里会出现多张，用同样重的阴影会显得浮 */
-  --app-shadow-panel:
-    0 1px 2px rgba(15, 40, 55, 0.05),
-    0 10px 28px -14px rgba(15, 40, 55, 0.14);
+  --app-shadow-panel: 0 1px 2px rgba(15, 40, 55, 0.05), 0 10px 28px -14px rgba(15, 40, 55, 0.14);
 
   /* 主按钮：与应用主色渐变一致 */
   --app-btn-height: 42px;
@@ -142,7 +138,9 @@
   border-radius: var(--app-btn-radius);
   background: var(--app-gradient-primary);
   /* 只过渡需要的属性，不用 transition: all */
-  transition: box-shadow 0.25s ease, transform 0.12s ease;
+  transition:
+    box-shadow 0.25s ease,
+    transform 0.12s ease;
 }
 
 .app-btn-primary.el-button--primary:not(.is-loading):hover {

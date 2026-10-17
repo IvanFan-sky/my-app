@@ -36,9 +36,7 @@ const NAV_ITEMS = [
 ]
 
 /** 按当前用户权限过滤后的菜单 */
-const navItems = computed(() =>
-  NAV_ITEMS.filter((item) => !item.requiresAdmin || auth.isAdmin),
-)
+const navItems = computed(() => NAV_ITEMS.filter((item) => !item.requiresAdmin || auth.isAdmin))
 
 /** 当前路由是否属于某一菜单项（子路由也能高亮父项） */
 function isActive(name: string) {
@@ -176,7 +174,9 @@ function isActive(name: string) {
   text-decoration: none;
   font-size: var(--app-fs-body);
   white-space: nowrap;
-  transition: background-color 0.16s ease, color 0.16s ease;
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease;
 }
 
 .nav-item:hover {

@@ -55,7 +55,6 @@ onMounted(async () => {
     <PageHeader title="系统设置" description="服务与缓存状态的只读视图（个人资料请到个人中心）" />
 
     <div class="grid">
-
       <!-- 服务状态 -->
       <el-card class="app-panel" shadow="never">
         <template #header>
@@ -123,13 +122,9 @@ onMounted(async () => {
 
         <p class="note">统计来自后端进程内计数器，重启后端会归零。</p>
       </el-card>
-
-
     </div>
 
-    <p class="footnote">
-      本页为系统级状态展示，全部只读。修改个人资料与密码请到「个人中心」。
-    </p>
+    <p class="footnote">本页为系统级状态展示，全部只读。修改个人资料与密码请到「个人中心」。</p>
   </div>
 </template>
 

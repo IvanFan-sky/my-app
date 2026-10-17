@@ -105,6 +105,18 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
+      # ESLint 管「对不对」（未用变量、Vue API 误用、模板写法），
+      # vue-tsc 只查类型，查不出这些
+      - name: 代码检查
+        working-directory: frontend
+        run: pnpm lint
+
+      # 格式检查用 --check 而不是 --write：CI 只判断，不改代码
+      # （让 CI 去改代码会让「本地过、CI 不过」的问题永远查不清）
+      - name: 格式检查
+        working-directory: frontend
+        run: pnpm format:check
+
       # vue-tsc 的严格检查（strict + noUnusedLocals）在这一步，
       # 不能只靠 build：build 里的类型错误信息更晚、更难读
       - name: 类型检查

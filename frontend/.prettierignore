@@ -1,0 +1,11 @@
+# 这些不是「我们的代码」，不要格式化
+# 注意：pnpm-lock.yaml 千万不要格式化，改了会让 --frozen-lockfile 直接失败
+dist
+node_modules
+coverage
+pnpm-lock.yaml
+public
+
+# 工具自动生成的文件
+src/auto-imports.d.ts
+src/components.d.ts

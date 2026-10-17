@@ -25,7 +25,15 @@ defineProps<{
     </template>
 
     <template v-else-if="name === 'lock'">
-      <rect x="4.5" y="10" width="15" height="10" rx="2.4" stroke="currentColor" stroke-width="1.6" />
+      <rect
+        x="4.5"
+        y="10"
+        width="15"
+        height="10"
+        rx="2.4"
+        stroke="currentColor"
+        stroke-width="1.6"
+      />
       <path
         d="M8.2 10V7.6a3.8 3.8 0 0 1 7.6 0V10"
         stroke="currentColor"
@@ -35,7 +43,15 @@ defineProps<{
     </template>
 
     <template v-else>
-      <rect x="3.5" y="5.5" width="17" height="13" rx="2.4" stroke="currentColor" stroke-width="1.6" />
+      <rect
+        x="3.5"
+        y="5.5"
+        width="17"
+        height="13"
+        rx="2.4"
+        stroke="currentColor"
+        stroke-width="1.6"
+      />
       <path
         d="m5.2 8.2 5.6 4.2a2 2 0 0 0 2.4 0l5.6-4.2"
         stroke="currentColor"

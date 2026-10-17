@@ -13,7 +13,6 @@
  * </ul>
  */
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
 import AppIcon from '@/components/AppIcon.vue'
 import StatCard from '@/components/layout/StatCard.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
@@ -103,7 +102,7 @@ onMounted(refreshAll)
           <AppIcon name="refresh" :size="15" />
           <span class="btn-text">刷新</span>
         </el-button>
-        <RouterLink :to="{ name: 'users' }" custom v-slot="{ navigate }">
+        <RouterLink v-slot="{ navigate }" :to="{ name: 'users' }" custom>
           <el-button type="primary" class="app-btn-primary" @click="navigate">
             <AppIcon name="users" :size="15" />
             <span class="btn-text">用户管理</span>
@@ -229,9 +228,7 @@ onMounted(refreshAll)
           </li>
         </ul>
 
-        <p class="status-note">
-          Redis 不可用时系统仍可正常工作，缓存会自动降级为直接查库。
-        </p>
+        <p class="status-note">Redis 不可用时系统仍可正常工作，缓存会自动降级为直接查库。</p>
       </el-card>
     </div>
   </div>

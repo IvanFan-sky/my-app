@@ -28,9 +28,11 @@
 | 前端框架 | Vue | 3.5.x |
 | 构建工具 | Vite | 6.x |
 | 语言 | TypeScript | 5.7.x |
-| UI 库 | Element Plus | 2.9.x |
+| UI 库 | Element Plus | 2.14.x（**按需引入**，见第 5 节） |
 | 状态管理 | Pinia | 2.3.x |
-| HTTP | axios | 1.7.x |
+| HTTP | axios | 1.20.x |
+| 代码检查 | ESLint | 10.x（flat config）+ eslint-plugin-vue 10.x |
+| 代码格式化 | Prettier | 3.x（配置见 `frontend/.prettierrc.json`） |
 | 包管理 | pnpm | 10.x |
 | JWT | jjwt | 0.12.5（`jjwt-api` compile + `jjwt-impl` / `jjwt-jackson` runtime） |
 | 密码哈希 | spring-security-crypto | 由 Boot BOM 管理（6.5.x），**只引这一个模块** |
@@ -103,10 +105,18 @@ mvn -U ...                     # 强制重新下载依赖（依赖疑似损坏�
 ```powershell
 pnpm install
 pnpm dev                       # 开发服务器，3000，带 /api 代理
+pnpm lint                      # ESLint（管「对不对」）
+pnpm lint:fix                  # 自动修可修的问题
+pnpm format                    # Prettier 格式化
+pnpm format:check              # 只检查不修改（CI 用这个）
 pnpm type-check                # vue-tsc 类型检查（不产出文件）
 pnpm build                     # 类型检查 + 生产构建
 pnpm preview                   # 预览构建产物
 ```
+
+三个工具分工别搞混：**ESLint 管「对不对」**（未用变量、Vue API 误用、模板写法），
+**Prettier 管「好不好看」**（缩进/引号/换行），**vue-tsc 管类型**。
+`eslint-config-prettier` 已把 ESLint 的格式类规则关掉，所以两者不会互相打架。
 
 > **端口固定为 3000，不要改回 Vite 默认的 5173。** 本机 Hyper-V 预留了
 > 4990–5188 端口段，5173/5174 都在其中，绑定会报 `listen EACCES`。
@@ -236,6 +246,33 @@ frontend/src/
 > 状态色（正常/异常/警告）统一用 `--app-status-*` 令牌，不要在各页面裸写色值，
 > 否则「工作台」和「系统设置」的正常色会不一致。
 >
+> **Element Plus 按需引入与分包约定（改构建配置前必读）**
+>
+> 组件与指令（`v-loading`）由 `unplugin-vue-components` 在构建时按 SFC 实际用到的标签
+> 逐个 import，`ElMessage` / `ElMessageBox` 由 `unplugin-auto-import` 注入。
+> `main.ts` **不要**再写 `app.use(ElementPlus)`，也不要引 `element-plus/dist/index.css`。
+>
+> 三个必须知道的实测结果：
+>
+> 1. **`manualChunks` 里不要按包名通配分配 element-plus。** Rollup 的规则是
+>    「被分到具名 chunk 的模块一定会被打包」，哪怕没人用。曾经写成
+>    `if (id.includes('element-plus')) return 'vendor-element-plus'`，结果整个桶文件里
+>    80 多个组件全被强制塞进来，产物里出现 ElTransfer / ElTree / ElUpload，
+>    那个 chunk 高达 **810 KB**。改成只给 vue 全家桶分包后，同样的源码 **364 KB**，
+>    未用组件全部消失。判据：`grep -c ElTransfer dist/assets/*.js` 应为 0。
+> 2. **`ElementPlusResolver` 的 `directives` 默认就是 `true`**，`v-loading` 会被自动注入，
+>    不需要在 `main.ts` 里再 `app.use(ElLoading)`（重复注册不报错，但会让职责含糊）。
+> 3. **`src/auto-imports.d.ts` 与 `src/components.d.ts` 必须提交进仓库**：
+>    `pnpm build` 先跑 `vue-tsc`，声明文件不在时类型检查会直接失败。
+>    它们由插件生成，已在 `.prettierignore` 里排除。
+>
+> 改完构建配置**必须核对产物体积**（当前基线：JS 约 580 KB / CSS 约 149 KB / dist 约 0.71 MB）。
+> 体积突然变大通常就是上面第 1 条又被改回去了。
+>
+> **颜色覆盖顺序**：`main.ts` 先引 `element-plus/theme-chalk/base.css`（`:root` 上的 `--el-*` 默认值），
+> 再引 `styles/tokens.css`（项目令牌）。顺序不能反 —— 反了 `--el-color-primary` 会被
+> 默认的 `#409eff` 盖回去，表现是「主按钮又变蓝」，且只在某些页面复现。
+
 > 其中共享表单样式是**非 scoped** 的（表单由父组件插槽传入，scoped 样式碰不到插槽内容），
 > 所以类名一律带 `auth-` / `field-` 前缀避免全局污染 —— 这是有意为之，不是漏写 scoped。
 
@@ -613,7 +650,8 @@ frontend/src/
 | 后端 Java 代码 | `mvn -q compile`；涉及逻辑或 SQL 时再跑 `mvn test` |
 | 后端 pom.xml / 依赖 | `mvn -DskipTests package`（依赖解析问题只有打包才会暴露） |
 | 前端 TS / Vue | `cd frontend; pnpm type-check` |
-| 前端依赖或构建配置 | `pnpm build` |
+| 前端任何改动 | `cd frontend; pnpm lint` 与 `pnpm format:check`（CI 会跑，本地先跑省一轮） |
+| 前端构建配置（vite.config） | `pnpm build` 并**核对产物体积**，见第 5 节的按需引入约定 |
 | 数据库结构（`db/migration/V*.sql`） | 起一次应用看 `flyway_schema_history`；空库与已有库两种场景都要过 |
 | API 契约（路径/字段/错误码） | 同步更新后端 DTO、前端 `src/api/`、以及本文件的接口约定 |
 | 权限相关（`@RequireRole`） | `mvn test`，`PermissionTest` 必须全过 —— 权限回归不会报错，只会静默越权 |

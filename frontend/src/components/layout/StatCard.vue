@@ -50,7 +50,9 @@ withDefaults(
   border: 1px solid var(--el-border-color-lighter);
   box-shadow: var(--app-shadow-panel);
   /* 悬停微微抬起：一页里有多张卡时，给出「这些是可关注的数据」的反馈 */
-  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
 }
 
 .stat:hover {

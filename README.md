@@ -110,7 +110,27 @@ my-app/
 
 ---
 
+## 前端工具链
+
+```powershell
+cd frontend
+pnpm lint          # ESLint：未用变量、Vue API 误用、模板写法
+pnpm format:check  # Prettier：格式是否统一
+pnpm type-check    # vue-tsc：类型
+pnpm build         # 类型检查 + 生产构建
+```
+
+三者分工：**ESLint 管「对不对」、Prettier 管「好不好看」、vue-tsc 管类型**。
+`eslint-config-prettier` 已关掉 ESLint 的格式类规则，两者不会互相打架。
+根目录有 `.editorconfig`，IDE 会自动套用缩进与换行约定。
+
+**这是按需引入的产物基线**（Element Plus 只按实际用到的组件打包）：
+JS 约 580 KB / CSS 约 149 KB / dist 约 0.71 MB。改造前是 1.47 MB（单个 1.1 MB 的 chunk）。
+若某次改构建配置后体积明显变大，多半是 `manualChunks` 又把整个 element-plus 强制分进去了
+（细节见 AGENTS.md 第 5 节）。
+
 ## 测试
+
 
 ```powershell
 cd backend
@@ -148,6 +168,10 @@ CI 见 `.github/workflows/ci.yml`：push 与 PR 时自动跑后端测试（带 M
 `code` 为 `0` 表示成功；非 `0` 表示业务失败（HTTP 状态码仍是 200）。
 
 ---
+
+## 许可
+
+[MIT](LICENSE) —— 可自由使用、修改、商用，保留版权声明即可。
 
 ## 下一步
 

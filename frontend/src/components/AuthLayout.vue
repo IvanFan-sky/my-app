@@ -338,7 +338,9 @@ defineProps<{
   background: var(--app-gradient-primary);
   border: none;
   /* 只过渡需要的属性，避免 transition: all 带来意外动画 */
-  transition: box-shadow 0.25s ease, transform 0.12s ease;
+  transition:
+    box-shadow 0.25s ease,
+    transform 0.12s ease;
 }
 
 .auth-submit:not(.is-loading):hover {

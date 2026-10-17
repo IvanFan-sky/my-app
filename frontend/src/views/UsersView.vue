@@ -9,7 +9,6 @@
  * 再额外放一条「连不上后端」的通栏告警属于重复告知。
  */
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import AppIcon from '@/components/AppIcon.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
@@ -56,6 +55,22 @@ const form = reactive<{
   role: 'USER',
 })
 
+/**
+ * 把表格行换成 {@link User}。
+ *
+ * <p>为什么需要它：`el-table` 的行插槽类型是 Element Plus 的 `DefaultRow`
+ * （一个不带业务字段的宽泛对象），而 element-plus 目前不支持泛型表格组件，
+ * 所以没法让插槽自动推出 `User`。在模板里写 `{ row }: { row: User }` 也不行 ——
+ * 插槽属性是逆变检查，实际类型 `{ row: DefaultRow, ... }` 必须能赋给 `{ row: User }`，
+ * 而 `DefaultRow` 缺 id/username，直接报错。
+ *
+ * <p>于是把转换收到这一处：既保留了函数签名的类型安全，又不用在每个调用点写 `as User`。
+ * 这个类型不匹配是**启用按需引入后才暴露的** —— 之前 `el-table` 走全局注册，
+ * 插槽参数在模板里等于 any，问题被掩盖了。
+ */
+function asUser(row: unknown): User {
+  return row as User
+}
 /** 编辑自己时禁用角色选择：后端也会拒，这里只是别让人白填 */
 const editingSelf = ref(false)
 
@@ -315,7 +330,9 @@ onMounted(loadUsers)
                 <span class="name-main">{{ row.nickname || row.username }}</span>
                 <span v-if="row.nickname" class="name-sub">{{ row.username }}</span>
               </span>
-              <el-tag v-if="isSelf(row)" size="small" type="info" effect="plain">当前登录</el-tag>
+              <el-tag v-if="isSelf(asUser(row))" size="small" type="info" effect="plain"
+                >当前登录</el-tag
+              >
             </span>
           </template>
         </el-table-column>
@@ -346,14 +363,23 @@ onMounted(loadUsers)
         <el-table-column prop="updatedAt" label="更新时间" min-width="180" />
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" link @click="openEdit(row)">
+            <el-button type="primary" link @click="openEdit(asUser(row))">
               <AppIcon name="edit" :size="14" />
               <span class="btn-text">编辑</span>
             </el-button>
-            <el-tooltip :disabled="!isSelf(row)" content="不能删除当前登录的账号" placement="top">
+            <el-tooltip
+              :disabled="!isSelf(asUser(row))"
+              content="不能删除当前登录的账号"
+              placement="top"
+            >
               <!-- span 包一层：disabled 的按钮不触发鼠标事件，tooltip 会失效 -->
               <span>
-                <el-button type="danger" link :disabled="isSelf(row)" @click="remove(row)">
+                <el-button
+                  type="danger"
+                  link
+                  :disabled="isSelf(asUser(row))"
+                  @click="remove(asUser(row))"
+                >
                   <AppIcon name="trash" :size="14" />
                   <span class="btn-text">删除</span>
                 </el-button>
@@ -435,12 +461,7 @@ onMounted(loadUsers)
 
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button
-          type="primary"
-          class="app-btn-primary"
-          :loading="submitting"
-          @click="submitForm"
-        >
+        <el-button type="primary" class="app-btn-primary" :loading="submitting" @click="submitForm">
           {{ isEdit ? '保存' : '创建' }}
         </el-button>
       </template>

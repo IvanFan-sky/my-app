@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import AuthLayout from '@/components/AuthLayout.vue'
@@ -131,8 +130,6 @@ async function submit() {
       <div class="auth-hint-foot">见 db/migration/V1__init.sql，上线前请删除本提示</div>
     </div>
 
-    <template #switch>
-      还没有账号？<RouterLink to="/register">立即注册</RouterLink>
-    </template>
+    <template #switch> 还没有账号？<RouterLink to="/register">立即注册</RouterLink> </template>
   </AuthLayout>
 </template>
