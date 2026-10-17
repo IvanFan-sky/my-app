@@ -54,6 +54,13 @@ const router = createRouter({
           meta: { title: '用户管理', requiresAdmin: true },
         },
         {
+          path: 'audit',
+          name: 'audit',
+          component: () => import('@/views/AuditLogView.vue'),
+          // 只给管理员：日志里有全部用户的操作轨迹与来源 IP
+          meta: { title: '审计日志', requiresAdmin: true },
+        },
+        {
           path: 'profile',
           name: 'profile',
           component: () => import('@/views/ProfileView.vue'),

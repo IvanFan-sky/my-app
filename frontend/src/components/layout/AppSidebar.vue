@@ -31,6 +31,7 @@ const auth = useAuthStore()
 const NAV_ITEMS = [
   { name: 'dashboard', label: '工作台', icon: 'dashboard' as const, requiresAdmin: false },
   { name: 'users', label: '用户管理', icon: 'users' as const, requiresAdmin: true },
+  { name: 'audit', label: '审计日志', icon: 'log' as const, requiresAdmin: true },
   { name: 'settings', label: '系统设置', icon: 'settings' as const, requiresAdmin: false },
   { name: 'profile', label: '个人中心', icon: 'user' as const, requiresAdmin: false },
 ]

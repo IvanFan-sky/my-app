@@ -48,6 +48,18 @@ withDefaults(
       <rect x="13.5" y="13.5" width="7" height="7" rx="1.6" />
     </template>
 
+    <template v-else-if="name === 'log'">
+      <path d="M5 4h9l4 4v12H5z" />
+      <path d="M14 4v4h4" />
+      <path d="M8.5 12.5h7M8.5 16h5" />
+    </template>
+
+    <template v-else-if="name === 'download'">
+      <path d="M12 4v10" />
+      <path d="M8.2 10.4 12 14.2l3.8-3.8" />
+      <path d="M5 18.5h14" />
+    </template>
+
     <template v-else-if="name === 'user'">
       <circle cx="12" cy="8" r="3.6" />
       <path d="M5.2 19.8c.7-3.4 3.5-5.4 6.8-5.4s6.1 2 6.8 5.4" />

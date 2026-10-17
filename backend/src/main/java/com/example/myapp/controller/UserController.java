@@ -5,8 +5,10 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.myapp.cache.UserCache;
 import com.example.myapp.common.ApiResponse;
 import com.example.myapp.common.BizException;
+import com.example.myapp.common.AuditAction;
 import com.example.myapp.common.ErrorCode;
 import com.example.myapp.common.UserRole;
+import com.example.myapp.dto.UserBatchForm;
 import com.example.myapp.dto.UserForm;
 import com.example.myapp.dto.UserStatsVO;
 import com.example.myapp.dto.UserVO;
@@ -14,8 +16,10 @@ import com.example.myapp.entity.User;
 import com.example.myapp.security.CurrentUser;
 import com.example.myapp.security.LoginUser;
 import com.example.myapp.security.RequireRole;
+import com.example.myapp.service.AuditLogService;
 import com.example.myapp.service.UserService;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -27,6 +31,14 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * User 的 REST 接口，路径前缀 /api/users。
@@ -49,6 +61,7 @@ public class UserController {
 
     private final UserService userService;
     private final UserCache userCache;
+    private final AuditLogService auditLogService;
 
     /** GET /api/users?keyword=ab&current=1&size=10 */
     @GetMapping
@@ -104,9 +117,13 @@ public class UserController {
         // 新增时这个 id 还不可能有缓存，但仍统一失效一次：
         // 依赖「新增不可能命中」这种推理，比无条件失效更容易在改动后失效
         userCache.evict(user.getId());
+        User created = userService.getById(user.getId());
+        auditLogService.record(AuditAction.CREATE_USER, null, null,
+                created.getId(), created.getUsername(),
+                Map.of("role", String.valueOf(created.getRole())), true);
         // 必须重新读一次：createdAt / updatedAt 由数据库的 DEFAULT CURRENT_TIMESTAMP 生成，
         // 刚 save 完的实体上这两列还是 null，直接返回会让前端拿到空时间（实测过）
-        return ApiResponse.ok(UserVO.from(userService.getById(user.getId())));
+        return ApiResponse.ok(UserVO.from(created));
     }
 
     /** PUT /api/users/{id} —— password 留空表示不修改密码 */
@@ -158,9 +175,35 @@ public class UserController {
         }
         // 必须先失效再回源，否则下一次读会拿到旧缓存
         userCache.evict(id);
+        User updated = userService.getById(id);
+
+        // 审计：只记「哪些字段被改」，role 记旧→新（角色不是敏感信息，记出来才查得清越权）
+        Map<String, Object> changed = new LinkedHashMap<>();
+        if (!java.util.Objects.equals(user.getNickname(), updated.getNickname())) {
+            changed.put("nickname", "changed");
+        }
+        if (!java.util.Objects.equals(user.getEmail(), updated.getEmail())) {
+            changed.put("email", "changed");
+        }
+        if (!java.util.Objects.equals(user.getBio(), updated.getBio())) {
+            changed.put("bio", "changed");
+        }
+        if (!java.util.Objects.equals(user.getAge(), updated.getAge())) {
+            changed.put("age", "changed");
+        }
+        if (!java.util.Objects.equals(previousRole, updated.getRole())) {
+            changed.put("role", previousRole + " -> " + updated.getRole());
+        }
+        if (hash != null) {
+            // 重置密码：只记「做过」，绝不记值
+            changed.put("password", "reset");
+        }
+        auditLogService.record(AuditAction.UPDATE_USER, null, null,
+                updated.getId(), updated.getUsername(), changed, true);
+
         // 同理重新读一次：updated_at 由数据库的 ON UPDATE 维护，
         // 内存里的还是改之前的值，直接返回会让前端以为「没保存成功」
-        return ApiResponse.ok(UserVO.from(userService.getById(id)));
+        return ApiResponse.ok(UserVO.from(updated));
     }
 
     /** DELETE /api/users/{id} —— 逻辑删除，只把 deleted 置 1 */
@@ -171,13 +214,131 @@ public class UserController {
         if (currentUser != null && currentUser.id().equals(id)) {
             throw new BizException(ErrorCode.PARAM_INVALID, "不能删除自己的账号");
         }
+        User target = userService.getById(id);
         userService.removeById(id);
         // 这行不能省：不删缓存的话，AuthInterceptor 会从缓存读到「用户还存在」，
         // 已删除用户的旧令牌在有效期内仍能访问接口
         userCache.evict(id);
+        auditLogService.record(AuditAction.DELETE_USER, null, null,
+                id, target == null ? null : target.getUsername(), null, true);
         return ApiResponse.ok();
     }
 
+    /**
+     * POST /api/users/batch-delete —— 批量逻辑删除。
+     *
+     * <p>逐条删除而不是一条 `UPDATE ... WHERE id IN (...)`：
+     * 单条写法的 SQL 更短，但**缓存失效需要知道每一条的 id**，
+     * 而这个接口最容易漏的正是缓存（漏了等于已删用户仍能用旧令牌访问）。
+     * 用 listByIds 拿到真实存在的行，逐条 removeById + evict，路径与单删完全一致。
+     *
+     * <p>只返回实际删除的条数：ids 里可能有已被删除或不存在的 id，
+     * 直接回传入数量会让前端以为全删成功了。
+     */
+    @PostMapping("/batch-delete")
+    public ApiResponse<Integer> batchDelete(@Valid @RequestBody UserBatchForm form,
+                                            @LoginUser CurrentUser currentUser) {
+        List<Long> ids = form.getIds().stream().filter(java.util.Objects::nonNull).distinct().toList();
+
+        // 与单删一致：不允许把自己删掉，否则当前登录立刻失效
+        if (currentUser != null && ids.contains(currentUser.id())) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "不能删除自己的账号，请从选择中移除");
+        }
+
+        // 先查出真实存在的行：一是为了审计能记下用户名，二是避免对不存在的 id 白忙
+        List<User> targets = userService.listByIds(ids);
+        for (User target : targets) {
+            userService.removeById(target.getId());
+            userCache.evict(target.getId());
+        }
+
+        int deleted = targets.size();
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("requested", ids.size());
+        detail.put("deleted", deleted);
+        // 用户名列表截断到 20 个，避免 detail 超长被截断成半截 JSON
+        detail.put("usernames", targets.stream().map(User::getUsername).limit(20).toList());
+        auditLogService.record(AuditAction.BATCH_DELETE, null, null, null, null, detail, true);
+
+        return ApiResponse.ok(deleted);
+    }
+
+    /**
+     * GET /api/users/export?keyword= —— 导出 CSV。
+     *
+     * <p>为什么不走「前端拿 JSON 自己拼 CSV」：导出的目的通常是要 Excel 打开，
+     * 而 Excel 对 UTF-8 的识别依赖 **BOM**，前端拼容易漏掉；另外上万行数据
+     * 全塞进浏览器内存也不合适。这里由服务端直接写流。
+     *
+     * <p>上限 5000 行：再大就不该用同步导出（应该走异步任务 + 下载链接），
+     * 否则一次导出可能把数据库连接和内存占住。超出时静默截断而不是报错 ——
+     * 对使用者来说「拿到前 5000 条」比「什么都没有」有用；文件名里会带行数以便发现。
+     */
+    @GetMapping("/export")
+    public void export(@RequestParam(required = false) String keyword,
+                       HttpServletResponse response) throws IOException {
+        // 复用与列表完全相同的查询：导出的结果必须和界面上看到的筛选结果一致
+        List<UserVO> rows = userService.pageByKeyword(keyword, 1, EXPORT_MAX_ROWS).getRecords();
+
+        String filename = "users-" + LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")) + ".csv";
+        response.setContentType("text/csv;charset=UTF-8");
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        response.setHeader("Content-Disposition",
+                "attachment; filename=\"" + filename + "\"");
+        // 告诉浏览器这是个下载，且不要让中间层按 JSON 处理
+        response.setHeader("X-Content-Type-Options", "nosniff");
+
+        var writer = response.getWriter();
+        // UTF-8 BOM：Excel 靠它识别编码，否则中文会显示成乱码
+        writer.write('\uFEFF');
+
+        writer.write("ID,用户名,显示名,角色,邮箱,年龄,创建时间,更新时间\r\n");
+        for (UserVO row : rows) {
+            writer.write(String.join(",",
+                    csvCell(row.getId() == null ? null : String.valueOf(row.getId())),
+                    csvCell(row.getUsername()),
+                    csvCell(row.getNickname()),
+                    csvCell(row.getRole()),
+                    csvCell(row.getEmail()),
+                    csvCell(row.getAge() == null ? null : String.valueOf(row.getAge())),
+                    csvCell(formatTime(row.getCreatedAt())),
+                    csvCell(formatTime(row.getUpdatedAt()))));
+            writer.write("\r\n");
+        }
+        writer.flush();
+    }
+
+    /** 导出上限。见 export 方法里的说明 */
+    private static final int EXPORT_MAX_ROWS = 5000;
+
+    /**
+     * CSV 单元格转义。
+     *
+     * <p>三个必须处理的字符：逗号（列分隔）、双引号（值里的引号要翻倍）、换行。
+     * 不做的话，「a,b」这样的邮箱或昵称会直接把列错位 —— 而错位的表格
+     * 看起来「有数据」，比报错更难发现。
+     *
+     * <p>另外防一下 CSV 注入：以 = + - @ 开头的值会被 Excel 当公式执行，
+     * 前面补一个单引号让它按文本处理。
+     */
+    private static String csvCell(String value) {
+        if (value == null) {
+            return "";
+        }
+        String v = value;
+        if (!v.isEmpty() && "=+-@".indexOf(v.charAt(0)) >= 0) {
+            v = "'" + v;
+        }
+        if (v.contains(",") || v.contains("\"") || v.contains("\n") || v.contains("\r")) {
+            return "\"" + v.replace("\"", "\"\"") + "\"";
+        }
+        return v;
+    }
+
+    private static String formatTime(java.time.LocalDateTime time) {
+        return time == null ? null : time.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+    }
     /**
      * 把表单里的可写字段搬到实体上。
      *

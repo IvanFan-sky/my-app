@@ -183,7 +183,7 @@ git ls-files | Select-String 'application-local'
 ```
 backend/src/main/java/com/example/myapp/
 ├── MyAppApplication.java   # 启动类，@MapperScan("com.example.myapp.mapper")
-├── common/                 # ApiResponse（统一响应）、BizException、ErrorCode、GlobalExceptionHandler
+├── common/                 # ApiResponse、BizException、ErrorCode、GlobalExceptionHandler、AuditAction（审计动作枚举）
 ├── config/                 # MybatisPlusConfig（分页插件）、WebMvcConfig（鉴权拦截器注册）、
 │                           # JwtProperties（app.jwt.* 配置）、SecurityBeanConfig（PasswordEncoder）
 ├── controller/             # 只做参数校验与编排，不写业务逻辑
@@ -191,7 +191,7 @@ backend/src/main/java/com/example/myapp/
 │                           # 两者都必须容忍 Redis 故障（fail-open）
 ├── dto/                    # 对外请求体与响应体（Form / VO），不暴露 entity
 ├── entity/                 # 与数据库表一一对应
-├── mapper/                 # 继承 BaseMapper，复杂 SQL 放 resources/mapper/*.xml
+├── mapper/                 # 继承 BaseMapper（UserMapper / AuditLogMapper），复杂 SQL 放 resources/mapper/*.xml
 ├── security/               # JwtTokenProvider（签发/解析）、AuthInterceptor（校验令牌）、
 │                           # RoleInterceptor + RequireRole（按端点声明的角色校验）、
 │                           # AuthResponses（拦截器写错误响应）、
@@ -210,7 +210,7 @@ backend/src/test/java/com/example/myapp/
                                 # LoginLockoutTest / UserCrudTest / TokenLifecycleTest
 
 frontend/src/
-├── api/          # http.ts（axios 实例 + 拦截器）、auth.ts（登录/注册接口）、user.ts（接口定义）
+├── api/          # http.ts（axios 实例 + 拦截器）、auth.ts（登录/注册）、user.ts、audit.ts（审计日志）
 ├── components/
 │   ├── layout/   # AppLayout（外壳）、AppSidebar（侧栏）、AppHeader（顶栏+面包屑）、
 │   │             # PageHeader（页面标题区）、StatCard（统计卡）
@@ -225,7 +225,7 @@ frontend/src/
 │                 # system.ts 健康状态与统计（工作台/系统设置共享）、app.ts 侧栏折叠
 ├── utils/        # jwt.ts（仅用于展示的令牌载荷解析）
 ├── views/        # 页面：Login/Register/Dashboard/Users/Profile/Settings/
-│                 # NotFound(404)/Forbidden(403)
+│                 # NotFound(404)/Forbidden(403)/AuditLogView(审计日志)
 ├── bootstrap.ts  # 把 api 层的令牌注入与 401 回调接到 store / 路由上
 ├── App.vue       # 只决定用哪种外壳（免登录页 vs AppLayout）
 └── main.ts       # 应用装配
@@ -396,6 +396,8 @@ frontend/src/
 | POST | `/api/users` | 新增，`password` 必填 |
 | PUT | `/api/users/{id}` | 修改，`password` 留空表示不改密码 |
 | DELETE | `/api/users/{id}` | 逻辑删除（只置 `deleted = 1`） |
+| POST | `/api/users/batch-delete` | 批量逻辑删除，入参 `{ids:[...]}`，**返回实际删除条数**（≤200 条） |
+| GET | `/api/users/export` | 导出 CSV（带 UTF-8 BOM），支持 `keyword`，上限 5000 行 |
 
 `keyword` 是**前缀匹配**（`LIKE 'kw%'`），`V3` 已给 email 建了 `idx_sys_user_email`，
 username 有唯一索引，两边都能用上索引。
@@ -460,6 +462,31 @@ username 有唯一索引，两边都能用上索引。
 > 已把锁定时长压到 3 分钟来控制影响（每 3 分钟只允许试 5 次，自动化爆破成本仍不可接受，
 > 而误伤控制在「喝口水就过去了」的量级）。彻底解决需要 IP+用户名双维度计数或验证码，
 > 属独立需求 —— 真要上线公网时优先补这个。
+
+### 审计日志
+
+表 `sys_audit_log`，**只记「写操作 + 登录」**，不记查询（查询量级完全不同，
+每次翻页一条，而审计要回答的是「谁改了谁」）。接口：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/audit-logs` | 分页查询，参数 `keyword`（操作人/对象用户名，前缀）、`action`、`current`、`size` |
+| GET | `/api/audit-logs/actions` | 可选动作清单（前端筛选下拉用，由 `AuditAction` 枚举生成） |
+
+两个都不能省的设计：
+
+1. **写入绝不能影响业务**：`AuditLogServiceImpl.record` 整段包 try/catch，失败只记 WARN。
+   日志是观测手段，不该成为「登录失败」的原因。反过来说**日志可能丢**（库写失败时），
+   审计要求极高的场景应改成同步落盘/MQ，那是另一套设计。
+2. **detail 里不放敏感值**：改密码只记「做过」，改资料只记「改了哪些字段名」，
+   不记字段值（邮箱等属于个人信息）。把值抄进长期留存的日志，
+   等于给自己造了一份影子用户表。
+
+另外：`ip` 只取 `getRemoteAddr()`，**不解析 `X-Forwarded-For`**（客户端可伪造）。
+真部署在反向代理后面时，应配置 `server.forward-headers-strategy` 让 Spring 处理。
+
+> 动作名和中文标签都定义在 `common/AuditAction`，前端不维护映射表 ——
+> 两边各一份，早晚会出现「后端加了动作、前端显示成原始枚举名」。
 
 ---
 
@@ -693,6 +720,7 @@ username 有唯一索引，两边都能用上索引。
 | 数据库结构（`db/migration/V*.sql`） | 起一次应用看 `flyway_schema_history`；空库与已有库两种场景都要过 |
 | API 契约（路径/字段/错误码） | 同步更新后端 DTO、前端 `src/api/`、以及本文件的接口约定 |
 | 权限相关（`@RequireRole`） | `mvn test`，`PermissionTest` 必须全过 —— 权限回归不会报错，只会静默越权 |
+| 新增/修改写操作 | `AuditLogTest` 覆盖：每个写操作都要留下审计记录，且 detail 不含敏感值 |
 | 任何改动 | 推上去看 CI（`.github/workflows/ci.yml`）：后端测试 + 前端 type-check/build |
 
 ### 硬性约束

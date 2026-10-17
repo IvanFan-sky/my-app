@@ -1,4 +1,4 @@
-import { request } from './http'
+import http, { request } from './http'
 
 /** 与后端 com.example.myapp.dto.UserVO 对应（只声明前端用得到的字段） */
 export interface User {
@@ -82,4 +82,28 @@ export function updateUser(id: number, data: UserForm) {
 
 export function deleteUser(id: number) {
   return request<void>({ url: `/users/${id}`, method: 'delete' })
+}
+
+/**
+ * POST /api/users/batch-delete —— 批量逻辑删除，返回**实际删除的条数**。
+ *
+ * <p>为什么不返回传入条数：ids 里可能包含已被别人删掉的用户，
+ * 回传入数量会让前端显示「已删除 10 个」而实际只删了 3 个。
+ */
+export function batchDeleteUsers(ids: number[]) {
+  return request<number>({ url: '/users/batch-delete', method: 'post', data: { ids } })
+}
+
+/**
+ * GET /api/users/export —— 导出 CSV（Blob）。
+ *
+ * <p>用 responseType: 'blob' 拿原始二进制，而不是走 request<T>()：
+ * 那个函数会去剥 `{code,message,data}` 外壳，而 CSV 响应体根本不是 JSON。
+ */
+export async function exportUsers(keyword?: string): Promise<Blob> {
+  const response = await http.get('/users/export', {
+    params: { keyword: keyword || undefined },
+    responseType: 'blob',
+  })
+  return response.data as Blob
 }

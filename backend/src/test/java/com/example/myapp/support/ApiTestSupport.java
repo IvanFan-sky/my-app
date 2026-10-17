@@ -226,6 +226,14 @@ public abstract class ApiTestSupport {
             jdbcTemplate.update("DELETE FROM sys_user WHERE username = ?", username);
             // 登录失败计数也要清：否则同名的下一个测试一上来就是「已锁定」状态
             redisTemplate.delete("my-app:login:fail:" + username);
+            // 审计日志也要清：它按设计「只增不改」，不主动删的话每跑一次测试
+            // 就多一批 ittest* 记录，越积越多，还会干扰按关键字查日志的断言
+            jdbcTemplate.update(
+                    "DELETE FROM sys_audit_log WHERE actor_username = ? OR target_username = ?",
+                    username, username);
+            // 批量删除这类动作用户名在 detail 里（target 无法归到单个对象），
+            // 按 detail 再扫一遍，否则测试每天都会在 alice 的审计里留下垃圾记录
+            jdbcTemplate.update("DELETE FROM sys_audit_log WHERE detail LIKE ?", "%ittest%");
         }
         createdUsernames.clear();
     }

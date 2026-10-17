@@ -12,7 +12,15 @@ import { onMounted, reactive, ref } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import AppIcon from '@/components/AppIcon.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
-import { createUser, deleteUser, getUser, pageUsers, updateUser } from '@/api/user'
+import {
+  batchDeleteUsers,
+  createUser,
+  deleteUser,
+  exportUsers,
+  getUser,
+  pageUsers,
+  updateUser,
+} from '@/api/user'
 import type { User } from '@/api/user'
 import { useAuthStore } from '@/stores/auth'
 
@@ -21,6 +29,11 @@ const auth = useAuthStore()
 const loading = ref(false)
 const users = ref<User[]>([])
 const total = ref(0)
+
+/** 表格多选。批量删除只对选中的行生效 */
+const selectedRows = ref<User[]>([])
+const batchDeleting = ref(false)
+const exporting = ref(false)
 
 /** 查询条件与分页状态 */
 const query = reactive({ keyword: '', current: 1, size: 10 })
@@ -276,6 +289,81 @@ function resetSearch() {
   void loadUsers()
 }
 
+function onSelectionChange(rows: User[]) {
+  selectedRows.value = rows
+}
+
+/**
+ * 批量删除。
+ *
+ * <p>二次确认里列出条数而不是用户名列表：选 50 个时列名字会把弹窗撑爆，
+ * 而「删除 50 个用户」这个数量信息已经足够让人停下来想一下。
+ */
+async function batchDelete() {
+  const ids = selectedRows.value.map((row) => row.id)
+  if (ids.length === 0) {
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除选中的 ${ids.length} 个用户吗？删除后这些账号的登录令牌会立即失效。`,
+      '批量删除',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+
+  batchDeleting.value = true
+  try {
+    const deleted = await batchDeleteUsers(ids)
+    // 后端返回的是**实际删除数**：可能有已被删掉的 id，两者不一致时要如实告知
+    if (deleted === ids.length) {
+      ElMessage.success(`已删除 ${deleted} 个用户`)
+    } else {
+      ElMessage.warning(`已删除 ${deleted} 个用户（${ids.length - deleted} 个已被删除或不存在）`)
+    }
+    selectedRows.value = []
+    // 删完可能当前页已空，回退一页避免看到空表格
+    if (users.value.length === deleted && query.current > 1) {
+      query.current -= 1
+    }
+    await loadUsers()
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  } finally {
+    batchDeleting.value = false
+  }
+}
+
+/**
+ * 导出当前筛选结果为 CSV。
+ *
+ * <p>后端直接返回二进制流（带 UTF-8 BOM，Excel 打开中文不乱码），
+ * 前端只负责把它落成文件。文件名带时间戳，多次导出不会互相覆盖。
+ */
+async function exportCsv() {
+  exporting.value = true
+  try {
+    const blob = await exportUsers(query.keyword || undefined)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+    link.href = url
+    link.download = `users-${stamp}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    // 必须释放，否则每导出一次就泄漏一块内存直到页面刷新
+    URL.revokeObjectURL(url)
+    ElMessage.success('导出已开始')
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  } finally {
+    exporting.value = false
+  }
+}
+
 onMounted(loadUsers)
 </script>
 
@@ -286,6 +374,10 @@ onMounted(loadUsers)
         <el-button :loading="loading" @click="loadUsers">
           <AppIcon name="refresh" :size="15" />
           <span class="btn-text">刷新</span>
+        </el-button>
+        <el-button :loading="exporting" @click="exportCsv">
+          <AppIcon name="download" :size="15" />
+          <span class="btn-text">导出 CSV</span>
         </el-button>
         <el-button type="primary" class="app-btn-primary" @click="openCreate">
           <AppIcon name="plus" :size="15" />
@@ -314,11 +406,34 @@ onMounted(loadUsers)
             <el-button @click="resetSearch">重置</el-button>
           </div>
 
-          <span class="count-hint">共 {{ total }} 个用户</span>
+          <div class="bulk-row">
+            <el-button
+              type="danger"
+              plain
+              :disabled="selectedRows.length === 0"
+              :loading="batchDeleting"
+              @click="batchDelete"
+            >
+              <AppIcon name="trash" :size="15" />
+              <span class="btn-text">
+                {{ selectedRows.length > 0 ? `批量删除（${selectedRows.length}）` : '批量删除' }}
+              </span>
+            </el-button>
+            <span class="count-hint">共 {{ total }} 个用户</span>
+          </div>
         </div>
       </template>
 
-      <el-table v-loading="loading" :data="users" border stripe>
+      <el-table
+        v-loading="loading"
+        :data="users"
+        border
+        stripe
+        row-key="id"
+        @selection-change="onSelectionChange"
+      >
+        <!-- 多选列：批量删除的数据源。row-key 必须有，否则翻页后选中状态会错乱 -->
+        <el-table-column type="selection" width="46" :reserve-selection="false" />
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="username" label="用户名" min-width="150">
           <template #default="{ row }">
@@ -498,6 +613,12 @@ onMounted(loadUsers)
 
 .search-input {
   width: 280px;
+}
+
+.bulk-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .count-hint {
