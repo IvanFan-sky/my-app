@@ -43,10 +43,15 @@ Get-Service MySQL84, Redis
 ### 1. 建库
 
 ```powershell
-& 'F:\JavaTool\MySQL84\bin\mysql.exe' -u root -p < sql\init.sql
+& 'F:\JavaTool\MySQL84\bin\mysql.exe' -u root -p -e "CREATE DATABASE IF NOT EXISTS my_app DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
 ```
 
-⚠️ 该脚本会 `DROP TABLE sys_user`，重复执行会清空这张表。
+**只需要建库。** 表结构与种子账号由 **Flyway** 在应用启动时自动创建，
+脚本在 `backend/src/main/resources/db/migration/`，执行记录写在 `flyway_schema_history` 表。
+
+- 变更表结构：**新增** `V<n>__说明.sql`，不要改已发布的迁移脚本
+  （`validate-on-migrate` 会校验 checksum，改了会让已有环境启动失败）。
+- 已有数据的库（表是手工建的）会自动在 V2 打基线并跳过 V1/V2，不会丢数据。
 
 ### 2. 数据库密码
 
@@ -99,12 +104,30 @@ my-app/
 │       ├── router/        # 路由
 │       ├── stores/        # Pinia 状态
 │       └── views/         # 页面
-├── sql/init.sql           # 建库建表 + 种子数据
+├── backend/src/main/resources/db/migration/   # Flyway 迁移（表结构的唯一来源）
 └── docs/                  # 环境说明与一次性修复脚本
 ```
 
 ---
 
+## 测试
+
+```powershell
+cd backend
+mvn test          # 集成测试，需要本机 MySQL + Redis 已启动
+```
+
+测试是 `@SpringBootTest` + MockMvc 的**集成**测试，没有把 DB/Redis 换成假的 ——
+要守住的东西（权限边界、缓存失效、空值覆盖、登录锁定）全都发生在框架协作处，
+换成 mock 会全绿但线上照样出事。
+
+覆盖范围：认证流程、权限边界（含提权尝试与管理员自我保护）、个人中心、
+登录失败锁定、CRUD / 分页搜索 / 缓存命中。
+
+CI 见 `.github/workflows/ci.yml`：push 与 PR 时自动跑后端测试（带 MySQL、Redis 服务容器）
+以及前端 `type-check` + `build`。
+
+---
 ## 接口一览
 
 | 方法 | 路径 | 说明 |
@@ -131,4 +154,4 @@ my-app/
 - 换成 MyBatis-Plus 的 XML 写复杂 SQL：见 `backend/src/main/resources/mapper/`
 - 加页面：`frontend/src/views/` 建组件 + `frontend/src/router/index.ts` 注册路由
 - 前端生产构建前，把 Element Plus 换成按需引入以减小体积（`frontend/src/main.ts` 有注释）
-- 数据库变更改用 Flyway 管理，别再手改 `init.sql`
+- 登录失败限制目前按用户名计数，公网部署建议再叠加 IP 维度或验证码

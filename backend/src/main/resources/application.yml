@@ -17,6 +17,25 @@ spring:
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:}
 
+  # ---------------- Flyway 数据库迁移 ----------------
+  flyway:
+    enabled: true
+    # 迁移脚本位置（classpath 下），Flyway 按 V<版本>__<说明>.sql 命名排序执行
+    locations: classpath:db/migration
+    # 迁移前校验已应用脚本的 checksum：改过已发布的迁移就会启动失败。
+    # 这是刻意的 —— 悄悄改历史迁移是多人协作里最容易造成环境不一致的做法。
+    validate-on-migrate: true
+    # 允许用 baseline 接管「已存在但还没有 flyway 历史表」的库。
+    baseline-on-migrate: true
+    # 关键：baseline 版本设为 2。
+    #   - 空库：schema 为空，不会触发 baseline，V1/V2 正常执行 → 建出完整表结构；
+    #   - 已有数据的库（本项目就是这种情况，表是手工建的）：
+    #     Flyway 会在 V2 处打基线，跳过 V1/V2（它们的效果已存在），
+    #     之后新增的 V3+ 正常执行。
+    # 两个场景都成立，是「接手已有库 + 支持全新安装」的标准做法。
+    # 注意：将来如果把基线往上调，已有环境的 V3 之后会被误判，改动前先想清楚。
+    baseline-version: 2
+
   data:
     redis:
       # 本机 Redis 8.10.2，服务名 Redis，端口 6379
@@ -49,7 +68,7 @@ mybatis-plus:
     db-config:
       # 主键策略：数据库自增
       id-type: auto
-      # 逻辑删除字段（配合 init.sql 里的 deleted 列）
+      # 逻辑删除字段（表结构见 Flyway 迁移脚本 db/migration/V1__init.sql）
       logic-delete-field: deleted
       logic-delete-value: 1
       logic-not-delete-value: 0
@@ -72,3 +91,12 @@ app:
     # 设为 true 时，未提供外部密钥将直接启动失败。生产环境务必设为 true，
     # 否则忘记配密钥时会悄悄用公开的开发密钥签发令牌，任何人都能伪造。
     require-external-secret: false
+  security:
+    login:
+      # 连续登录失败达到这个次数后，该用户名被临时锁定。
+      # 调小更安全但更容易误伤（用户手滑几次就进不去）；5 次是常见折中。
+      max-attempts: 5
+      # 锁定时长（分钟），每次失败都会刷新，即「从最后一次失败算起」。
+      # 这个值同时限制了两件事：正常用户被误锁后的等待时间，以及
+      # 「攻击者故意输错把别人锁死」这种手法的持续时间 —— 别设得太长。
+      lock-minutes: 15

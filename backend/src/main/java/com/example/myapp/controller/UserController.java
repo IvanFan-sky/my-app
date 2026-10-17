@@ -13,6 +13,7 @@ import com.example.myapp.dto.UserVO;
 import com.example.myapp.entity.User;
 import com.example.myapp.security.CurrentUser;
 import com.example.myapp.security.LoginUser;
+import com.example.myapp.security.RequireRole;
 import com.example.myapp.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +42,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/users")
 @RequiredArgsConstructor
+// 整组只对管理员开放。这样声明在端点旁边，读 Controller 就知道谁能访问，
+// 不需要去配置文件里找哪条路径挂了哪个拦截器。
+@RequireRole(UserRole.ADMIN)
 public class UserController {
 
     private final UserService userService;

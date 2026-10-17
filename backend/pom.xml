@@ -24,6 +24,7 @@
         <!-- JWT 签发与校验。选 0.12.5：本机 Maven 仓库已有成品 jar，构建不依赖临时下载；
              0.12.x 是当前稳定线（0.11 及更早的 API 与之不兼容，升级时注意 setSubject 等写法变化）。 -->
         <jjwt.version>0.12.5</jjwt.version>
+
     </properties>
 
     <dependencies>
@@ -104,6 +105,21 @@
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-crypto</artifactId>
+        </dependency>
+
+        <!-- 数据库迁移。flyway-core 自带 spring-boot 自动配置，
+             启动时自动执行 classpath:db/migration 下未应用的版本脚本。
+             MySQL 支持在 9.x 拆成独立模块，必须一并引入，否则启动报
+             "No Flyway database plugin found"。 -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <!-- MySQL 支持在 Flyway 10+ 拆成独立模块，必须一并引入，
+             否则启动报 "No Flyway database plugin found" -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
         </dependency>
 
         <!-- Lombok：编译期生成 getter/setter，IDE 需装 Lombok 插件 -->

@@ -34,6 +34,7 @@
 | 包管理 | pnpm | 10.x |
 | JWT | jjwt | 0.12.5（`jjwt-api` compile + `jjwt-impl` / `jjwt-jackson` runtime） |
 | 密码哈希 | spring-security-crypto | 由 Boot BOM 管理（6.5.x），**只引这一个模块** |
+| 数据库迁移 | Flyway | 由 Boot BOM 管理（11.x），另需 `flyway-mysql` 模块 |
 
 **为什么 Spring Boot 停留在 3.5.x 而不是 4.x**：3.5 是 3.x 最后一条线，中文生态
 （MyBatis-Plus、Druid、Hutool 等）与绝大多数教程都对齐它；4.x 需要 Spring Framework 7，
@@ -118,12 +119,16 @@ pnpm preview                   # 预览构建产物
 ### 数据库
 
 ```powershell
-# 建库建表 + 种子数据（⚠️ 会 DROP 掉 sys_user）
-& 'F:\JavaTool\MySQL84\bin\mysql.exe' -u root -p < sql\init.sql
+# 只需建库（表结构与种子数据由 Flyway 在应用启动时自动创建）
+& 'F:\JavaTool\MySQL84\bin\mysql.exe' -u root -p -e "CREATE DATABASE IF NOT EXISTS my_app DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
 
 # 进客户端
 & 'F:\JavaTool\MySQL84\bin\mysql.exe' -u root -p my_app
 ```
+
+> **表结构由 Flyway 管理，不要再手写建表 SQL。**
+> 启动应用时 Flyway 自动执行 `backend/src/main/resources/db/migration` 下未应用的脚本，
+> 执行记录存在 `flyway_schema_history` 表。新增/变更表结构 = 新增一个 `V<n>__说明.sql`。
 
 ### Redis
 
@@ -172,14 +177,26 @@ backend/src/main/java/com/example/myapp/
 ├── config/                 # MybatisPlusConfig（分页插件）、WebMvcConfig（鉴权拦截器注册）、
 │                           # JwtProperties（app.jwt.* 配置）、SecurityBeanConfig（PasswordEncoder）
 ├── controller/             # 只做参数校验与编排，不写业务逻辑
-├── cache/                  # UserCache（Redis 缓存，必须容忍 Redis 故障）
+├── cache/                  # UserCache（用户信息缓存）、LoginAttemptCache（登录失败计数与锁定），
+│                           # 两者都必须容忍 Redis 故障（fail-open）
 ├── dto/                    # 对外请求体与响应体（Form / VO），不暴露 entity
 ├── entity/                 # 与数据库表一一对应
 ├── mapper/                 # 继承 BaseMapper，复杂 SQL 放 resources/mapper/*.xml
 ├── security/               # JwtTokenProvider（签发/解析）、AuthInterceptor（校验令牌）、
-│                           # AdminOnlyInterceptor（/api/users/** 要求 ADMIN）、AuthResponses（拦截器写错误响应）、
+│                           # RoleInterceptor + RequireRole（按端点声明的角色校验）、
+│                           # AuthResponses（拦截器写错误响应）、
 │                           # CurrentUser + LoginUser + CurrentUserArgumentResolver（注入登录用户）
 └── service/ + service/impl # 业务逻辑，继承 IService / ServiceImpl
+
+backend/src/main/resources/db/migration/   # Flyway 迁移脚本，表结构的唯一来源
+├── V1__init.sql            # 建表 + 种子账号
+└── V2__profile_role.sql    # 增加 nickname / role / bio
+
+backend/src/test/java/com/example/myapp/
+├── MyAppApplicationTests.java  # 容器冒烟
+├── support/ApiTestSupport.java # 集成测试基类（发请求/断言/造数据/清理）
+└── api/                        # AuthFlowTest / PermissionTest / ProfileTest /
+                                # LoginLockoutTest / UserCrudTest
 
 frontend/src/
 ├── api/          # http.ts（axios 实例 + 拦截器）、auth.ts（登录/注册接口）、user.ts（接口定义）
@@ -281,7 +298,7 @@ frontend/src/
 - 分页参数统一 `current`（从 1 开始）与 `size`；分页返回体直接用 MyBatis-Plus 的 `Page`
   结构（`records` / `total` / `current` / `size`）。
 - 业务错误码集中定义在 `common/ErrorCode.java`：`4000` 参数校验失败，`4004` 资源不存在，
-  `4009` 资源冲突（用户名已占用），`4010` 未认证，`4030` 无权限（预留），`5000` 未预期异常。
+  `4009` 资源冲突（用户名已占用），`4010` 未认证，`4030` 无权限，`4290` 请求过于频繁（登录锁定），`5000` 未预期异常。
   **新增业务码必须加到那个类里**，不要各处随手写数字 —— 分散着写迟早会撞码。
 - 对外返回值一律用 `dto/` 下的 VO/Form，**不要把 `entity` 直接当返回值**：
   `User` 带着 `passwordHash`，图省事返回实体就等于把密码哈希发给整个内网。
@@ -312,7 +329,7 @@ frontend/src/
   查不出来，但它仍然占着 `username` 的唯一索引（实测会抛 `Duplicate entry`）。
   只查重会让这种请求落到兜底分支报 5000。正确做法是
   查重（给出友好提示）+ 捕获 `DuplicateKeyException`（保证正确性），见
-  `AuthServiceImpl.register`。`docs/verify-login.ps1` 第 12c 组专门验这个边界。
+  `AuthServiceImpl.register`。`api/AuthFlowTest` 里有对应断言。
 
 ### 用户接口
 
@@ -330,9 +347,19 @@ frontend/src/
 
 ### 权限模型（重要）
 
-**`/api/users/**` 整组接口只对 `role = ADMIN` 开放**，非管理员返回 HTTP 403 + `code=4030`。
-实现在 `security/AdminOnlyInterceptor`，注册在 `/api/users/**` 上，**顺序必须在
-`AuthInterceptor` 之后**（后者负责写入 `CurrentUser`，前者读它判角色；顺序反了会把管理员也拦掉）。
+**权限按端点声明，不按路径配置**。在 Controller 类或方法上标 `@RequireRole(UserRole.ADMIN)`
+即可；没标注解的端点默认「只要登录」。实现在 `security/RoleInterceptor`：
+
+- 注册在 `/api/**` 上，**但只对带注解的端点生效**；
+- 方法上的注解**优先于**类上的（便于整组收紧、个别放开）；
+- **顺序必须在 `AuthInterceptor` 之后** —— 后者写入 `CurrentUser`，前者读它判角色；
+  顺序反了会把管理员也拦掉，`RoleInterceptor` 里对此有显式告警；
+- 非管理员返回 HTTP 403 + `code=4030`（403 而非 401：身份有效，只是权限不够，
+  返回 401 会让前端误跳登录页）。
+
+> **为什么不再用路径硬编码**：老做法是在 `WebMvcConfig` 里写死 `/api/users/**` 挂管理员拦截器。
+> 新增管理模块时，只写 Controller 不生效，必须记得回来加一行 —— 漏一次就是越权，
+> 而这种漏在 review 里几乎看不出来。注解把权限声明放在端点旁边，读 Controller 就知道谁能访问。
 
 个人中心的两个接口**不校验角色**（任何登录用户都能改自己），安全性由结构保证：
 路径里没有 id，userId 只从令牌取，因此不存在「改别人的资料」这条路径。
@@ -343,13 +370,30 @@ frontend/src/
 2. **不能删除自己的账号** —— 删掉后当前令牌立即失效，等于把自己踢出系统。
 3. **个人资料接口不收 role / username / password 字段** —— DTO 里根本没有这些字段，
    客户端塞进请求体也会被 Jackson 忽略。这是「不可能提权」的结构保证，
-   比「收到后再判断要不要用」更难写错。`docs/verify-profile.ps1` 第 4 组专门验这条。
+   比「收到后再判断要不要用」更难写错。`api/PermissionTest#cannotEscalateThroughProfile` 专门验这条。
 
 **改密码失败返回 4000 而不是 4010**：前端 http 拦截器见到 4010 会清登录态并跳登录页，
 用户只是打错一次旧密码却被登出，体验极差。
 
 **已知限制**：改密码后，别处已签发的旧令牌在过期前仍然有效。
 无状态 JWT 没有服务端会话可销，要做到即时失效需要 Redis 黑名单（独立需求）。
+
+### 登录失败限制
+
+连续登录失败达到 `app.security.login.max-attempts`（默认 5）后，该用户名被临时锁定
+`lock-minutes`（默认 15）分钟，返回 `code=4290`。实现在 `cache/LoginAttemptCache`：
+
+- key `my-app:login:fail:{username}`，**每次失败都刷新 TTL**（滑动窗口）；
+- **登录成功即清零** —— 「连续失败」语义，否则用户正常登录过、隔几天错两次就被锁；
+- **用户不存在也计数**：否则「有没有计数」本身就成了用户名枚举信号；
+- **4290 而不是 4010**：前端见到 4010 会清登录态并跳登录页，
+  而被限流的用户并没有登录态问题，混用会表现成「突然被登出」；
+- **Redis 故障时 fail-open**：计数与锁定都包了 try/catch，Redis 挂了放行登录并打 WARN。
+  缓存是加速与防护手段，不该成为单点故障。
+
+> **已知取舍**：按用户名锁定意味着攻击者可以故意输错来锁死别人的账号（DoS）。
+> 缓解是「锁定时间短 + 到期自动解锁 + 成功清零」。面向公网的产品建议再叠加
+> IP+用户名双维度计数或验证码；本项目按「管理后台」定位先做到这一步。
 
 ---
 
@@ -370,7 +414,7 @@ frontend/src/
 
 1. **任何写用户的地方都要调 `userCache.evict(id)`。** 漏掉的后果不是「数据略旧」，
    而是 `AuthInterceptor` 从缓存读到已删除用户、继续放行其旧令牌 ——
-   **这是权限漏洞，不是缓存脏读**。`docs/verify-login.ps1` 有对应断言。
+   **这是权限漏洞，不是缓存脏读**。`api/ProfileTest#profileUpdateEvictsCache` 有对应断言。
 2. **缓存必须容忍 Redis 故障。** `UserCache` 里所有 Redis 操作都包了 try/catch，
    失败只记 WARN 并回源数据库。Redis 挂了用户管理必须照常可用，已实测。
    新增缓存方法时不要把这层保护去掉。
@@ -396,12 +440,16 @@ frontend/src/
 - **唯一索引与逻辑删除有冲突**：`sys_user.username` 是唯一索引，但删除只置 `deleted = 1`，
   于是「已删除的用户名」仍占位，同名新用户会插入失败。要真正允许重用用户名，
   需把唯一索引改成 `(username, deleted)` 组合索引，或改为物理删除。**改这块前先确认需求。**
-- 表结构变更目前靠手改 `sql/init.sql`。**表变多或开始多人协作后，应切换到 Flyway / Liquibase**，
-  别继续用「改 init.sql + 手动执行」的方式。
-- **`init.sql` 只用于「全新安装」（它会 DROP 表）**。已有数据的环境请用 `sql/migrate-*.sql`：
-  目前有一个 `migrate-2026-10-17-profile-role.sql`，加了 `nickname` / `role` / `bio` 三列，
-  **不 DROP、不丢数据**，并把 alice 设为 ADMIN。
-  注意 `ALTER TABLE ... ADD COLUMN` 不可重入，重复执行会报 `Duplicate column name`，这是预期的。
+- **表结构由 Flyway 管理**，脚本在 `backend/src/main/resources/db/migration/`，
+  命名 `V<版本>__<说明>.sql`。当前 `V1__init.sql`（建表 + 种子）、`V2__profile_role.sql`。
+- **绝不修改已发布的迁移脚本**：`validate-on-migrate: true` 会比对 checksum，
+  改过的文件会让已有环境**启动失败**。要变更结构就新增 `V3__xxx.sql`。
+  这条规则看起来麻烦，但它正是「大家库结构一致」的保证。
+- **`baseline-version: 2` 的含义**（`application.yml` 里有详细注释）：
+  空库不触发 baseline，V1/V2 正常执行；已有数据的库在 V2 打基线、跳过 V1/V2，
+  之后 V3+ 正常执行。**两种场景都已实测**，改动这个值前先想清楚已有环境会怎样。
+- 新增环境（CI、新同事）不需要手工建表：建好库、启动应用即可。
+- 迁移脚本里不要写 `CREATE DATABASE` / `USE`：库由外部创建，Flyway 只负责表。
 - `sys_user` 现有字段：`id` / `username`（登录标识，唯一）/ `nickname`（显示名）/
   `password_hash` / `role`（ADMIN/USER）/ `email` / `bio` / `age` / `deleted` / 时间戳。
   **`username` 与 `nickname` 是两件事**：前者用于登录，后者只用于展示，个人中心只让改后者。
@@ -449,15 +497,18 @@ frontend/src/
      `powershell.exe -File xxx.ps1` 会按 GBK 解析，中文注释里的全角括号会让脚本
      报出与真实原因毫不相干的语法错误（`Array index expression is missing`）。
      写入时用 `[System.IO.File]::WriteAllText($p, $t, (New-Object System.Text.UTF8Encoding($true)))`。
-     参考 `docs/verify-login.ps1`。
+     （本项目的接口验证已改用 JUnit 集成测试，见 `backend/src/test`；但只要你临时写
+     `.ps1` 手工探接口，这条坑依然成立。）
    - **`Invoke-WebRequest` 在 PS 5.1 下读不到非 2xx 的响应体**：
      `$_.Exception.Response.GetResponseStream()` 返回空串，于是「401 时 body 里
      `code=4010`」这类关键断言会全部误判失败。**校验接口请一律用 `curl.exe`**
      （`-s -o 文件 -w '%{http_code}'`，body 从文件按 UTF-8 读），不要用
      `Invoke-WebRequest` / `Invoke-RestMethod`。
 
-   > 这条是实测踩出来的：`verify-login.ps1` 最初用 `Invoke-WebRequest`，
+   > 这条是实测踩出来的：最早那版 PowerShell 验证脚本用 `Invoke-WebRequest`，
    > 报了 4 个假失败，换成 `curl.exe` 后 25 项全过。
+   > 现在接口验证已迁到 JUnit（`backend/src/test`），不再受这个坑影响 ——
+   > 但只要你写临时脚本手工探接口，仍然要注意。
 
 3. **`.ps1` 可能因执行策略或文件封锁而无法直接运行**。两个办法：
    先 `Unblock-File`，或改用 `-ExecutionPolicy Bypass` / 以 ScriptBlock 执行。
@@ -465,9 +516,10 @@ frontend/src/
 4. **`pwsh` 不是命令**（只装了 Windows PowerShell 5.1）。需要新语法时用
    `powershell.exe`，或直接写成兼容 5.1 的脚本。
 
-5. **`mvn test` 依赖真实基础设施**：`MyAppApplicationTests` 是 `@SpringBootTest`，
-   会连 MySQL 与 Redis。**没建库或没配密码时它会失败**，这不是代码问题。
-   只想验证能否打包就用 `mvn -DskipTests package`。
+5. **`mvn test` 依赖真实基础设施**：测试是 `@SpringBootTest` 集成测试，
+   会连 MySQL 与 Redis（并触发 Flyway 迁移）。**库不存在或没配密码时会失败**，
+   这不是代码问题 —— 先建库、配好 `DB_PASSWORD`。只想验证能否打包就用
+   `mvn -DskipTests package`。CI 里由 service 容器提供 MySQL 与 Redis。
 
 6. **前端 `pnpm build` 会先跑 `vue-tsc`**。类型错误会阻断构建，
    而 `pnpm dev` 不会报同样的错 —— 提交前端改动前跑一次 `pnpm type-check`。
@@ -562,8 +614,10 @@ frontend/src/
 | 后端 pom.xml / 依赖 | `mvn -DskipTests package`（依赖解析问题只有打包才会暴露） |
 | 前端 TS / Vue | `cd frontend; pnpm type-check` |
 | 前端依赖或构建配置 | `pnpm build` |
-| `sql/init.sql` | 在事务或临时库里实际执行一遍，确认能建起来 |
+| 数据库结构（`db/migration/V*.sql`） | 起一次应用看 `flyway_schema_history`；空库与已有库两种场景都要过 |
 | API 契约（路径/字段/错误码） | 同步更新后端 DTO、前端 `src/api/`、以及本文件的接口约定 |
+| 权限相关（`@RequireRole`） | `mvn test`，`PermissionTest` 必须全过 —— 权限回归不会报错，只会静默越权 |
+| 任何改动 | 推上去看 CI（`.github/workflows/ci.yml`）：后端测试 + 前端 type-check/build |
 
 ### 硬性约束
 
@@ -574,7 +628,9 @@ frontend/src/
   并说明理由 —— 当前设计让数据库负责时间。
 - **不要把分页改成「查全表再切页」**，也不要在移除分页插件的情况下改分页代码。
 - **不要提交密钥**。新增配置项一律走环境变量，并在第 10 节登记。
-- **改数据库结构时同步更新 `sql/init.sql`**，并在提交说明里写清影响。
+- **改数据库结构时新增一个 `V<n>__xxx.sql` 迁移**（不要改已发布的迁移脚本），
+  并在提交说明里写清影响与回滚方式。
+- **不要把权限校验从注解挪回路径配置**，也不要用「前端隐藏了入口」当作权限保证。
 - 新增接口后更新第 7 节；新增环境相关坑后更新第 11 节。本文件随代码一起演进。
 
 ### 提交信息

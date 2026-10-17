@@ -117,7 +117,7 @@ async function submit() {
       </el-form-item>
     </el-form>
 
-    <!-- 开发期提示：种子账号写在这里，省得翻 sql/init.sql。
+    <!-- 开发期提示：种子账号写在这里，省得翻 db/migration/V1__init.sql。
          部署前必须删掉这段，否则等于把账号信息挂在登录页上。
          用自绘的浅描边卡而不是 el-alert：alert 的底色和图标权重太高，
          会把注意力从表单上抢走。 -->
@@ -128,7 +128,7 @@ async function submit() {
         <code>bob / bob123</code>
         <code>carol / carol123</code>
       </div>
-      <div class="auth-hint-foot">见 sql/init.sql，上线前请删除本提示</div>
+      <div class="auth-hint-foot">见 db/migration/V1__init.sql，上线前请删除本提示</div>
     </div>
 
     <template #switch>

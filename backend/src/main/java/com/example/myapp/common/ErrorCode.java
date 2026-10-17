@@ -14,7 +14,8 @@ package com.example.myapp.common;
  *   <li>4004 —— 资源不存在（沿用骨架里已有的码，不要改成 4040）</li>
  *   <li>4009 —— 资源冲突（用户名已被占用等）</li>
  *   <li>4010 —— 认证相关（未登录、登录失败、令牌无效）</li>
- *   <li>4030 —— 授权相关（已登录但无权限，本版本还没用到，先登记占位）</li>
+ *   <li>4030 —— 授权相关（已登录但无权限）</li>
+ *   <li>4290 —— 请求过于频繁（登录失败次数过多触发临时锁定）</li>
  *   <li>5000 —— 服务端自身异常</li>
  * </ul>
  */
@@ -44,6 +45,17 @@ public final class ErrorCode {
 
     /** 资源不存在 */
     public static final int NOT_FOUND = 4004;
+
+    /**
+     * 请求过于频繁：登录连续失败次数超限，账号被临时锁定。
+     *
+     * <p>为什么单列一个码而不是复用 4010：前端对 4010 的处理是「清登录态并跳登录页」，
+     * 而这里的用户并没有登录态问题，只是被限流了。混用会让「被锁 15 分钟」
+     * 表现成「突然被登出」，用户完全无法理解发生了什么。
+     *
+     * <p>按项目约定仍是 HTTP 200 + 业务码（见 GlobalExceptionHandler）。
+     */
+    public static final int TOO_MANY_ATTEMPTS = 4290;
 
     /** 未预期异常 */
     public static final int SERVER_ERROR = 5000;

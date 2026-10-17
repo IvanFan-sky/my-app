@@ -1,0 +1,116 @@
+# 持续集成：把「改完自己记得跑什么」变成机器来跑
+#
+# 对应 AGENTS.md 第 12 节的验证表。原来那张表的每条命令都得靠人记得执行，
+# 而权限边界、缓存失效这类回归**不会报错**，只会悄悄削弱系统 —— 所以必须有 CI。
+#
+# 为什么用 service 容器而不是 Mock：
+# 测试是 @SpringBootTest 集成测试，验证的是 MVC + MyBatis-Plus + Redis 的协作，
+# 把 MySQL 换成 H2 会把「SQL 方言、ON UPDATE、唯一索引」这些真实行为测没。
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# 同一分支的新提交会取消上一次未跑完的构建，省额度也省等待
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: 后端（编译 + 集成测试）
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          # 库必须预先存在：Flyway 负责建表，但不负责 CREATE DATABASE
+          MYSQL_DATABASE: my_app
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: 跑测试（Flyway 会自动建表）
+        working-directory: backend
+        env:
+          # 覆盖 application.yml 里的默认值。application-local.yml 是 gitignore 的，
+          # CI 里不存在，所以数据库口令必须由环境变量提供（见 AGENTS.md 第 10 节）。
+          SPRING_DATASOURCE_URL: jdbc:mysql://127.0.0.1:3306/my_app?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+          DB_USERNAME: root
+          DB_PASSWORD: root
+          # 用随机开发密钥跑测试：不要在任何持久化环境复用固定密钥
+          APP_JWT_SECRET: ci-only-secret-please-do-not-reuse-0123456789
+        run: mvn -B verify
+
+      - name: 上传测试报告（失败时排查用）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-surefire-reports
+          path: backend/target/surefire-reports/
+          retention-days: 7
+
+  frontend:
+    name: 前端（类型检查 + 构建）
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      # --frozen-lockfile：lockfile 与 package.json 不一致时直接失败，
+      # 而不是悄悄改依赖版本 —— CI 里装的必须是开发者本地装的那一份
+      - name: 安装依赖
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      # vue-tsc 的严格检查（strict + noUnusedLocals）在这一步，
+      # 不能只靠 build：build 里的类型错误信息更晚、更难读
+      - name: 类型检查
+        working-directory: frontend
+        run: pnpm type-check
+
+      - name: 构建
+        working-directory: frontend
+        run: pnpm build

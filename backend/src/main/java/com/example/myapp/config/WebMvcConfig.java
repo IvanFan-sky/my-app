@@ -1,7 +1,7 @@
 package com.example.myapp.config;
 
-import com.example.myapp.security.AdminOnlyInterceptor;
 import com.example.myapp.security.AuthInterceptor;
+import com.example.myapp.security.RoleInterceptor;
 import com.example.myapp.security.CurrentUserArgumentResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
@@ -23,7 +23,7 @@ import java.util.List;
 public class WebMvcConfig implements WebMvcConfigurer {
 
     private final AuthInterceptor authInterceptor;
-    private final AdminOnlyInterceptor adminOnlyInterceptor;
+    private final RoleInterceptor roleInterceptor;
     private final CurrentUserArgumentResolver currentUserArgumentResolver;
 
     @Override
@@ -43,11 +43,11 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/api/health"
                 );
 
-        // 用户管理整组接口只对管理员开放。
-        // 没有这层的话，任何登录用户都能改别人的密码、删别人的账号 ——
-        // 接口只校验了「已登录」，没有校验「是不是自己的账号」。
-        registry.addInterceptor(adminOnlyInterceptor)
-                .addPathPatterns("/api/users/**");
+        // 角色校验：挂在 /api/** 上，但**只对带 @RequireRole 的端点生效**。
+        // 这样新增接口默认只需登录；要收紧权限时在方法或类上加个注解即可，
+        // 不必回这个配置文件加路径 —— 路径硬编码的老写法漏一次就是越权。
+        registry.addInterceptor(roleInterceptor)
+                .addPathPatterns("/api/**");
     }
 
     @Override

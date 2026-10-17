@@ -3,8 +3,10 @@ package com.example.myapp.service.impl;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.example.myapp.common.BizException;
 import com.example.myapp.common.ErrorCode;
+import com.example.myapp.common.UserRole;
 import com.example.myapp.dto.LoginForm;
 import com.example.myapp.dto.LoginResponse;
+import com.example.myapp.cache.LoginAttemptCache;
 import com.example.myapp.cache.UserCache;
 import com.example.myapp.dto.PasswordForm;
 import com.example.myapp.dto.ProfileForm;
@@ -42,11 +44,25 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider tokenProvider;
     private final UserCache userCache;
+    private final LoginAttemptCache loginAttemptCache;
 
     @Override
     public LoginResponse login(LoginForm form) {
         String username = form.getUsername().trim();
         String password = form.getPassword();
+
+        // 先看是否已被临时锁定。放在最前面是有意的：
+        // 被锁定时不再做哈希校验，既省 CPU（这正是限流的意义），
+        // 也避免攻击者靠响应时间继续探测。
+        long lockedMinutes = loginAttemptCache.lockRemainingMinutes(username);
+        if (lockedMinutes > 0) {
+            log.warn("登录被拒：尝试次数过多，账号处于临时锁定 username={} 剩余={}分钟",
+                    username, lockedMinutes);
+            // 4290 而不是 4010：前端见到 4010 会清登录态并跳登录页，
+            // 而这里用户只是被限流，跳登录页等于让他更困惑
+            throw new BizException(ErrorCode.TOO_MANY_ATTEMPTS,
+                    "登录失败次数过多，请 " + lockedMinutes + " 分钟后再试");
+        }
 
         // 用一条 select 查库：虽然多查一列 password_hash，但比先查存在性再查密码少一次往返
         User user = userService.getOne(
@@ -57,15 +73,21 @@ public class AuthServiceImpl implements AuthService {
             // 空跑一次哈希校验，把响应时间拉到和「密码错误」一致
             passwordEncoder.matches(password, DUMMY_BCRYPT_HASH);
             log.info("登录失败：用户名不存在 username={}", username);
+            // 不存在的用户名也计数：否则「有计数 = 账号存在」本身就成了枚举信号
+            loginAttemptCache.recordFailure(username);
             throw unauthorized();
         }
 
         if (user.getPasswordHash() == null || !passwordEncoder.matches(password, user.getPasswordHash())) {
             log.info("登录失败：密码错误 username={} userId={}", username, user.getId());
+            loginAttemptCache.recordFailure(username);
             throw unauthorized();
         }
 
         String token = tokenProvider.createToken(user.getId(), user.getUsername());
+        // 「连续失败」语义：成功一次就把计数清零，否则用户正常登录过、
+        // 隔几天再输错两次就被锁，会显得莫名其妙
+        loginAttemptCache.clear(username);
         log.info("登录成功 username={} userId={}", user.getUsername(), user.getId());
         return new LoginResponse(token, "Bearer", tokenProvider.getExpireSeconds(), UserVO.from(user));
     }
@@ -88,6 +110,10 @@ public class AuthServiceImpl implements AuthService {
         user.setUsername(username);
         // 邮箱留空按 null 处理，避免把空串写进库（空串和 NULL 在唯一性、查询上语义不同）
         user.setEmail(StringUtils.hasText(form.getEmail()) ? form.getEmail().trim() : null);
+        // 角色显式给默认值。数据库列也有 DEFAULT 'USER'，但**返回给客户端的 VO
+        // 是由内存实体构造的**，不显式赋值的话响应里的 role 会是 null（被新加的测试抓到）。
+        // 注册接口的安全性依赖「新用户不是管理员」，这个字段不能只靠数据库兜底。
+        user.setRole(UserRole.DEFAULT_ROLE);
         // 复用与「新增用户」同一套密码处理（长度、UTF-8 字节数校验都在里面）
         userService.assignPassword(user, form.getPassword());
 
@@ -106,8 +132,12 @@ public class AuthServiceImpl implements AuthService {
 
         // 注册即登录：直接签发令牌，省掉「注册完再登一次」这一步
         String token = tokenProvider.createToken(user.getId(), user.getUsername());
+        // 重新读一次再返回：created_at / updated_at 由数据库生成，
+        // 刚 save 完的实体上还是 null，直接返回会让前端拿到空时间
+        // （与 UserController.create 是同一个问题）
+        User fresh = userService.getById(user.getId());
         log.info("注册成功 username={} userId={}", user.getUsername(), user.getId());
-        return new LoginResponse(token, "Bearer", tokenProvider.getExpireSeconds(), UserVO.from(user));
+        return new LoginResponse(token, "Bearer", tokenProvider.getExpireSeconds(), UserVO.from(fresh));
     }
 
     @Override

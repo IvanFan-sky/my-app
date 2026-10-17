@@ -12,7 +12,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * 用户实体，对应表 sys_user（见 sql/init.sql）。
+ * 用户实体，对应表 sys_user（结构见 Flyway 迁移 `db/migration/V1__init.sql`）。
  *
  * <p>createdAt / updatedAt 由数据库的 DEFAULT CURRENT_TIMESTAMP 与
  * ON UPDATE CURRENT_TIMESTAMP 维护，因此这里不加填充注解；MyBatis-Plus 默认
