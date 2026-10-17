@@ -15,6 +15,8 @@
  *       这是 Vue 里共享插槽样式的标准做法，不是忘了写 scoped。</li>
  * </ol>
  */
+import AppIcon from '@/components/AppIcon.vue'
+
 defineProps<{
   /** 表单区主标题，如「欢迎回来」/「创建账号」 */
   title: string
@@ -51,9 +53,27 @@ defineProps<{
           <p class="brand-desc">Vue 3 + Spring Boot + MySQL + Redis</p>
 
           <ul class="brand-points">
-            <li>前后端分离，接口统一为 <code>{ code, message, data }</code></li>
-            <li>JWT 无状态鉴权，密码以 BCrypt 哈希存储</li>
-            <li>MyBatis-Plus 单表 CRUD 与分页开箱可用</li>
+            <li>
+              <span class="bp-icon" aria-hidden="true"><AppIcon name="shield" :size="15" /></span>
+              <span class="bp-text">
+                <strong>JWT 无状态鉴权</strong>
+                <small>密码以 BCrypt 哈希存储，令牌带过期时间</small>
+              </span>
+            </li>
+            <li>
+              <span class="bp-icon" aria-hidden="true"><AppIcon name="database" :size="15" /></span>
+              <span class="bp-text">
+                <strong>Redis 用户缓存</strong>
+                <small>按 id 缓存，写时失效，故障自动降级</small>
+              </span>
+            </li>
+            <li>
+              <span class="bp-icon" aria-hidden="true"><AppIcon name="users" :size="15" /></span>
+              <span class="bp-text">
+                <strong>用户管理开箱可用</strong>
+                <small>分页、检索、新增、编辑、逻辑删除</small>
+              </span>
+            </li>
           </ul>
         </div>
 
@@ -98,9 +118,9 @@ defineProps<{
   box-sizing: border-box;
   /* 浅色底：表单卡片浮在上面，避免整屏纯白显得空 */
   background:
-    radial-gradient(1100px 520px at 12% 8%, rgba(109, 139, 255, 0.14), transparent 62%),
-    radial-gradient(900px 480px at 92% 92%, rgba(31, 42, 90, 0.1), transparent 60%),
-    var(--el-fill-color-light);
+    radial-gradient(1100px 520px at 12% 8%, var(--app-glow-primary), transparent 62%),
+    radial-gradient(900px 480px at 92% 92%, var(--app-glow-secondary), transparent 60%),
+    var(--app-bg-page);
 }
 
 .auth-shell {
@@ -113,9 +133,7 @@ defineProps<{
   overflow: hidden;
   background: var(--el-bg-color);
   /* 两层阴影：近处收紧、远处扩散，比单层大模糊更立体 */
-  box-shadow:
-    0 1px 2px rgba(16, 24, 40, 0.06),
-    0 24px 60px -20px rgba(16, 24, 40, 0.28);
+  box-shadow: var(--app-shadow-card);
 }
 
 /* ---------------- 左侧品牌区 ---------------- */
@@ -124,7 +142,7 @@ defineProps<{
   overflow: hidden;
   padding: 40px 34px;
   color: #fff;
-  background: linear-gradient(158deg, var(--brand-from), var(--brand-to));
+  background: linear-gradient(155deg, var(--brand-from) 0%, var(--brand-to) 100%);
 }
 
 .brand-inner {
@@ -161,7 +179,7 @@ defineProps<{
   margin: 8px 0 0;
   font-size: 13px;
   line-height: 1.6;
-  color: rgba(255, 255, 255, 0.72);
+  color: rgba(255, 255, 255, 0.92);
 }
 
 .brand-points {
@@ -173,32 +191,48 @@ defineProps<{
   gap: 13px;
   font-size: 13px;
   line-height: 1.6;
-  color: rgba(255, 255, 255, 0.86);
+  color: rgba(255, 255, 255, 0.92);
 }
 
+/* 每条特性：左侧图标块 + 右侧「标题 / 说明」两行。
+   比原来单行文案更容易扫读，也和后台侧栏的图标语言一致。 */
 .brand-points li {
-  position: relative;
-  padding-left: 18px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
 }
 
-/* 用 ::before 画小圆点，省一层 DOM */
-.brand-points li::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 8px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--brand-accent);
-  box-shadow: 0 0 0 3px rgba(109, 139, 255, 0.22);
+.bp-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  flex: none;
+  /* 深青底上用白色半透明块，与品牌 logo 的处理保持一致 */
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
-.brand-points code {
-  padding: 1px 5px;
-  border-radius: 4px;
+.bp-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.bp-text strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.bp-text small {
   font-size: 12px;
-  background: rgba(255, 255, 255, 0.12);
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.88);
 }
 
 /* 装饰光斑 */
@@ -214,7 +248,7 @@ defineProps<{
   height: 230px;
   right: -78px;
   top: -66px;
-  background: rgba(109, 139, 255, 0.5);
+  background: rgba(34, 211, 238, 0.55);
 }
 
 .deco-b {
@@ -222,7 +256,7 @@ defineProps<{
   height: 190px;
   left: -70px;
   bottom: -76px;
-  background: rgba(126, 200, 255, 0.26);
+  background: rgba(125, 232, 255, 0.42);
 }
 
 /* ---------------- 右侧表单区 ---------------- */
@@ -301,49 +335,59 @@ defineProps<{
   font-size: 15px;
   letter-spacing: 3px;
   border-radius: 9px;
-  background: linear-gradient(100deg, var(--brand-to), var(--brand-accent));
+  background: var(--app-gradient-primary);
   border: none;
   /* 只过渡需要的属性，避免 transition: all 带来意外动画 */
   transition: box-shadow 0.25s ease, transform 0.12s ease;
 }
 
 .auth-submit:not(.is-loading):hover {
-  box-shadow: 0 10px 22px -8px rgba(43, 63, 143, 0.6);
+  box-shadow: var(--app-btn-glow);
 }
 
 .auth-submit:not(.is-loading):active {
   transform: translateY(1px);
 }
 
+/* 测试账号提示：浅描边卡，权重远低于表单。
+   刻意不用 el-alert —— 它的底色与图标太醒目，会把视线从登录框上拉走。 */
 .auth-hint {
-  margin-top: 22px;
+  margin-top: 20px;
+  padding: 12px 14px;
   border-radius: 10px;
+  /* 极淡的品牌色底 + 同色描边，比灰底更有归属感又不会抢戏 */
+  background: rgba(15, 118, 110, 0.04);
+  border: 1px solid rgba(15, 118, 110, 0.14);
 }
 
 .auth-hint-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
+  color: var(--brand-ink);
 }
 
 .auth-hint-body {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 7px;
+  margin-top: 8px;
 }
 
 .auth-hint-body code {
   padding: 2px 7px;
   border-radius: 5px;
   font-size: 12px;
-  background: var(--el-fill-color-dark);
+  /* 等宽字体让「alice / alice123」这种口令更好读 */
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-lighter);
   color: var(--el-text-color-regular);
 }
 
 .auth-hint-foot {
   margin-top: 8px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
+  font-size: 11px;
+  color: var(--el-text-color-placeholder);
 }
 
 /* 底部切换链接，两个页面共用同一版式 */
@@ -355,13 +399,13 @@ defineProps<{
 }
 
 .auth-switch a {
-  color: var(--brand-to);
+  color: var(--brand-ink);
   font-weight: 600;
   text-decoration: none;
 }
 
 .auth-switch a:hover {
-  color: var(--brand-accent);
+  color: var(--brand-ink-hover);
   text-decoration: underline;
 }
 

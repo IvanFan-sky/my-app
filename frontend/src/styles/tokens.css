@@ -5,33 +5,134 @@
    如果分别写在登录页、注册页、用户管理页里，改主题时一定会漏掉某一处，
    最后三个页面看起来像三个产品。集中在这里，各页面只引用变量，不写字面值。
 
-   命名约定：--brand-* 是品牌色，--app-* 是本项目自己的尺寸令牌，
-   其余以 --el- 开头的是 Element Plus 自带的变量，直接复用不重复定义。
+   命名约定：
+     --brand-*   品牌色（渐变、图标、高亮）
+     --app-*     本项目自己的尺寸与效果令牌
+     --el-*      Element Plus 自带，这里只覆盖主色相关的那几档
+
+   配色方向：青绿 → 天蓝，整体明快清爽。
+   但「明快」不等于把所有颜色都调亮 —— 见下面 --brand-from 的对比度说明。
    ============================================================ */
 :root {
-  /* 品牌主色：品牌区深色渐变的起点 / 终点，以及高亮色 */
-  --brand-from: #1f2a5a;
-  --brand-to: #2b3f8f;
-  --brand-accent: #6d8bff;
+  /* ---------- 品牌色 ---------- */
+  /*
+   * 渐变起点 / 终点：青绿 → 天蓝。
+   *
+   * 这两个值不是凭好看挑的，是按「白字能否读清」反推出来的：
+   *   纯白字 on #0f766e = 5.47:1   （AA 正文达标）
+   *   纯白字 on #0f7fa6 = 4.56:1
+   *   92% 白字 on #0f766e = 4.90:1 （登录页副标题用这个透明度）
+   *
+   * 反面参考（为什么不直接用更亮的青）：亮青 #0ea5a4 上白字只有 3.03:1，
+   * 天蓝 #38bdf8 更是只有 2.14:1 —— 登录页左栏的副标题会直接糊掉。
+   * 「明快清爽」靠的是**大面积浅底 + 高饱和强调色**，不是把承载白字的区域也调亮。
+   */
+  --brand-from: #0f766e;
+  --brand-to: #0f7fa6;
 
+  /* 高亮色：只用在**装饰**上（光斑、小圆点、图标）。
+     它不能当承载白字的背景，也不能当浅底文字，原因见下面 --brand-ink。 */
+  --brand-accent: #22d3ee;
+
+  /*
+   * 浅色背景上的文字/链接专用色。
+   * 亮青当小字会糊在白底上（#22d3ee 对白约 1.7:1），
+   * 所以浅底上的链接一律用这个深青：白底 6.11:1、页面底 5.74:1，均达标。
+   */
+  --brand-ink: #0d6e66;
+  --brand-ink-hover: #0a5a54;
+
+  /* ---------- 覆盖 Element Plus 主色 ---------- */
+  /*
+   * 不改这几档的话，输入框聚焦边框、分页选中、链接按钮仍是默认蓝(#409eff)，
+   * 会和青绿主按钮撞色，一眼看出「没换干净」。
+   * base 用 #0f766e 而不是亮青，因为 Element Plus 会拿它当**链接文字色**用
+   * （白底上的链接按钮），必须满足正文对比度。
+   * 色阶按 Element Plus 规则生成：light-N 往白混 N×10%，dark-2 加深 20%。
+   */
+  --el-color-primary: #0f766e;
+  --el-color-primary-light-3: #579f9a;
+  --el-color-primary-light-5: #87bab6;
+  --el-color-primary-light-7: #b7d6d4;
+  --el-color-primary-light-8: #cfe4e2;
+  --el-color-primary-light-9: #e7f1f0;
+  --el-color-primary-dark-2: #0c5e58;
+
+  /* ---------- 页面底色与光晕 ---------- */
+  /* 极淡的青色冷底，让白色卡片浮起来，避免整屏刺白 —— 「清爽」的主要来源 */
+  --app-bg-page: #f2f9fc;
+  /* 页面装饰光晕：高亮青的低透明度，只做氛围，不承载任何文字 */
+  --app-glow-primary: rgba(34, 211, 238, 0.12);
+  --app-glow-secondary: rgba(56, 189, 248, 0.08);
+
+  /* ---------- 尺寸与阴影 ---------- */
   /* 卡片：与登录/注册页的卡片保持同一规格 */
   --app-radius-card: 20px;
   --app-radius-inner: 12px;
+  /* 阴影用带青的冷色，比中性灰更贴合清爽调性 */
   --app-shadow-card:
-    0 1px 2px rgba(16, 24, 40, 0.06),
-    0 24px 60px -20px rgba(16, 24, 40, 0.28);
+    0 1px 2px rgba(15, 40, 55, 0.06),
+    0 24px 60px -20px rgba(15, 40, 55, 0.24);
   /* 列表页卡片比登录卡片轻一档：一页里会出现多张，用同样重的阴影会显得浮 */
   --app-shadow-panel:
-    0 1px 2px rgba(16, 24, 40, 0.05),
-    0 10px 28px -14px rgba(16, 24, 40, 0.18);
+    0 1px 2px rgba(15, 40, 55, 0.05),
+    0 10px 28px -14px rgba(15, 40, 55, 0.14);
 
   /* 主按钮：与应用主色渐变一致 */
   --app-btn-height: 42px;
   --app-btn-radius: 9px;
-  --app-gradient-primary: linear-gradient(100deg, var(--brand-to), var(--brand-accent));
+  --app-gradient-primary: linear-gradient(100deg, var(--brand-from), var(--brand-to));
+  /* 主按钮悬停光晕，跟着主色走 */
+  --app-btn-glow: 0 10px 22px -8px rgba(15, 118, 110, 0.45);
 
-  /* 内容区最大宽度，让列表页与登录页的视觉重心一致 */
-  --app-content-max: 1180px;
+  /* 输入框聚焦环 */
+  --app-focus-ring: 0 0 0 3px rgba(15, 118, 110, 0.16);
+
+  /* 内容区最大宽度。有了左侧导航后，内容铺满更好用，这里只做上限兜底 */
+  --app-content-max: 1400px;
+
+  /* ---------- 布局骨架 ---------- */
+  /* 侧栏宽：展开 224px 是中文菜单不折行的下限，收起 64px 只留图标 */
+  --app-sidebar-w: 224px;
+  --app-sidebar-w-collapsed: 64px;
+  /* 顶栏高：56px 是「有信息但不占地方」的常用值 */
+  --app-header-h: 56px;
+  /* 内容区边距，四个方向统一 */
+  --app-gutter: 20px;
+
+  /* ---------- 侧栏专用色 ---------- */
+  /* 侧栏用品牌渐变的「深端」，比登录页左栏再暗一档：
+     侧栏要长期停留在视野里，太亮会抢内容的注意力。
+     深底上白字对比度足够（见下方注释的实测值）。 */
+  --app-sidebar-bg: linear-gradient(170deg, #0b5f59 0%, #0d6a72 45%, #0e5f7a 100%);
+  /* 菜单项：常态文字、悬停底、选中底与选中亮条。
+     常态文字用 0.86 白：实测 0.76 在渐变中段(#0d6a72)只有 4.38:1，
+     达不到 AA 正文 4.5:1；0.86 在三段渐变上分别是 6.04 / 5.13 / 5.77，全部达标。 */
+  --app-nav-text: rgba(255, 255, 255, 0.86);
+  --app-nav-text-active: #ffffff;
+  --app-nav-hover-bg: rgba(255, 255, 255, 0.1);
+  --app-nav-active-bg: rgba(255, 255, 255, 0.16);
+  --app-nav-marker: #22d3ee;
+
+  /* ---------- 语义状态色 ---------- */
+  /*
+   * 状态色单独定义，不在页面里写死。
+   * 这些值同时在「工作台」和「系统设置」两处用到 —— 各写一遍的话，
+   * 调色时必然漏掉一处，两个页面的「正常」绿就会不一样。
+   */
+  --app-status-ok-fg: #0f766e;
+  --app-status-ok-bg: rgba(15, 118, 110, 0.1);
+  --app-status-bad-fg: #b91c1c;
+  --app-status-bad-bg: rgba(185, 28, 28, 0.1);
+  --app-status-warn-fg: #b45309;
+  --app-status-warn-bg: rgba(180, 83, 9, 0.1);
+
+  /* ---------- 字号梯度（5 档，不再细分） ---------- */
+  --app-fs-page-title: 20px;
+  --app-fs-card-title: 15px;
+  --app-fs-body: 14px;
+  --app-fs-secondary: 13px;
+  --app-fs-caption: 12px;
 }
 
 /* 主色按钮：登录/注册页的提交按钮与用户管理页的新增按钮共用同一套观感。
@@ -45,7 +146,7 @@
 }
 
 .app-btn-primary.el-button--primary:not(.is-loading):hover {
-  box-shadow: 0 10px 22px -8px rgba(43, 63, 143, 0.6);
+  box-shadow: var(--app-btn-glow);
 }
 
 .app-btn-primary.el-button--primary:not(.is-loading):active {
@@ -57,6 +158,19 @@
   border-radius: var(--app-radius-inner);
   border: 1px solid var(--el-border-color-lighter);
   box-shadow: var(--app-shadow-panel);
+}
+
+/* 浅底上的品牌文字（链接、强调词）。用 --brand-ink 而不是 --brand-to，
+   原因见令牌定义处的对比度说明。 */
+.app-link {
+  color: var(--brand-ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.app-link:hover {
+  color: var(--brand-ink-hover);
+  text-decoration: underline;
 }
 
 /* 尊重「减少动态效果」的系统设置 */

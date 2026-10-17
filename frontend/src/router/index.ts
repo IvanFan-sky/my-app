@@ -1,33 +1,70 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import HomeView from '@/views/HomeView.vue'
-import LoginView from '@/views/LoginView.vue'
-import RegisterView from '@/views/RegisterView.vue'
+import AppLayout from '@/components/layout/AppLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 
+/**
+ * 路由表。
+ *
+ * <p>结构上分成两棵：
+ * <ul>
+ *   <li><b>登录态页面</b>：挂在 AppLayout 下，共用侧栏 + 顶栏；</li>
+ *   <li><b>免登录页面</b>：登录/注册，直接渲染，不套外壳。</li>
+ * </ul>
+ *
+ * <p>登录态页面的 `meta.title` 会被顶栏面包屑读取，`meta` 里没有标题的页面
+ * 面包屑只显示「首页」。新增页面时记得补 title，否则面包屑会缺一环。
+ *
+ * <p>页面组件用懒加载（`() => import(...)`）：首屏只需要登录页，
+ * 把用户管理、设置等一起打进主包会让首屏白白变大。
+ */
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
       path: '/login',
       name: 'login',
-      component: LoginView,
-      // 已登录的人不该再看到登录页
+      component: () => import('@/views/LoginView.vue'),
       meta: { public: true },
     },
     {
       path: '/register',
       name: 'register',
-      component: RegisterView,
-      // 注册页同理：未登录才该看到
+      component: () => import('@/views/RegisterView.vue'),
       meta: { public: true },
     },
     {
+      // 外壳本身不渲染内容，只提供侧栏 + 顶栏，内容由 children 填
       path: '/',
-      name: 'home',
-      component: HomeView,
+      component: AppLayout,
+      // 访问 / 时重定向到工作台，避免「首页」和「工作台」两个名字并存
+      redirect: { name: 'dashboard' },
+      children: [
+        {
+          path: 'dashboard',
+          name: 'dashboard',
+          component: () => import('@/views/DashboardView.vue'),
+          meta: { title: '工作台' },
+        },
+        {
+          path: 'users',
+          name: 'users',
+          component: () => import('@/views/UsersView.vue'),
+          meta: { title: '用户管理' },
+        },
+        {
+          path: 'settings',
+          name: 'settings',
+          component: () => import('@/views/SettingsView.vue'),
+          meta: { title: '系统设置' },
+        },
+      ],
     },
-    // 新页面加在这里，并同步建 src/views/XxxView.vue
-    // 需要免登录访问的页面，给它加 meta: { public: true }
+    {
+      // 兜底：未知路径回工作台。没有这一条时手打错地址会看到一片空白，
+      // 用户会以为应用坏了。
+      path: '/:pathMatch(.*)*',
+      redirect: { name: 'dashboard' },
+    },
   ],
 })
 
@@ -45,14 +82,20 @@ router.beforeEach((to) => {
   const auth = useAuthStore()
 
   // 所有 public 页面（登录、注册）都是「未登录才该看」，
-  // 已登录时统一回首页，避免登录后手点后退又回到登录页
+  // 已登录时统一回工作台，避免登录后手点后退又回到登录页
   if (to.meta.public) {
-    return auth.isAuthenticated ? { name: 'home' } : true
+    return auth.isAuthenticated ? { name: 'dashboard' } : true
   }
   if (!auth.isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
   return true
+})
+
+/** 切换页面后把标题同步到浏览器标签，方便同时开多个后台标签时区分 */
+router.afterEach((to) => {
+  const title = to.meta.title as string | undefined
+  document.title = title ? `${title} · my-app` : 'my-app'
 })
 
 export default router

@@ -1,27 +1,27 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+/**
+ * 用户管理：分页 / 搜索 / 新增 / 编辑 / 删除。
+ *
+ * <p>与工作台的分工：工作台只做概览（统计 + 最近几条），真正的增删改查全部集中在这里。
+ * 两个页面都放一份表格维护成本太高，也容易让用户困惑「到底该在哪操作」。
+ *
+ * <p>本页不自己探测后端连通性：任何请求失败时 http 层都会弹出可读的错误提示，
+ * 再额外放一条「连不上后端」的通栏告警属于重复告知。
+ */
+import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
-import {
-  createUser,
-  deleteUser,
-  fetchHealth,
-  fetchUserStats,
-  getUser,
-  pageUsers,
-  updateUser,
-} from '@/api/user'
-import type { User, UserStats } from '@/api/user'
-import { useAppStore } from '@/stores/app'
+import AppIcon from '@/components/AppIcon.vue'
+import PageHeader from '@/components/layout/PageHeader.vue'
+import { createUser, deleteUser, getUser, pageUsers, updateUser } from '@/api/user'
+import type { User } from '@/api/user'
 import { useAuthStore } from '@/stores/auth'
 
-const appStore = useAppStore()
 const auth = useAuthStore()
 
 const loading = ref(false)
 const users = ref<User[]>([])
 const total = ref(0)
-const stats = ref<UserStats | null>(null)
 
 /** 查询条件与分页状态 */
 const query = reactive({ keyword: '', current: 1, size: 10 })
@@ -36,7 +36,7 @@ const submitting = ref(false)
 const editingId = ref<number | null>(null)
 const formRef = ref<FormInstance>()
 
-const isEdit = computed(() => editingId.value !== null)
+const isEdit = ref(false)
 
 const form = reactive<{ username: string; password: string; email: string; age?: number }>({
   username: '',
@@ -49,36 +49,37 @@ const form = reactive<{ username: string; password: string; email: string; age?:
  * 校验规则的差异点：新增时密码必填，编辑时留空表示「不改密码」。
  * 用 computed 让规则跟着模式走，而不是写两套表单。
  */
-const rules = computed<FormRules<typeof form>>(() => ({
-  username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' },
-    { max: 64, message: '用户名最长 64 个字符', trigger: 'blur' },
-  ],
-  password: isEdit.value
-    ? [
-        // 编辑态：允许留空；填了就要满足长度要求
-        {
-          validator: (_rule, value: string, callback: (error?: Error) => void) => {
-            if (value && value.length < 6) {
-              callback(new Error('密码长度不能少于 6 个字符'))
-              return
-            }
-            callback()
-          },
-          trigger: 'blur',
-        },
-      ]
-    : [
-        { required: true, message: '请输入密码', trigger: 'blur' },
-        { min: 6, max: 72, message: '密码长度需在 6~72 个字符之间', trigger: 'blur' },
-      ],
-  email: [{ type: 'email', message: '邮箱格式不正确', trigger: 'blur' }],
-}))
+const rules = ref<FormRules<typeof form>>({})
 
-/** 密码提示文案随模式变化，避免用户以为编辑时也必须填 */
-const passwordPlaceholder = computed(() =>
-  isEdit.value ? '留空表示不修改密码' : '必填，至少 6 位',
-)
+function buildRules(editMode: boolean): FormRules<typeof form> {
+  return {
+    username: [
+      { required: true, message: '请输入用户名', trigger: 'blur' },
+      { max: 64, message: '用户名最长 64 个字符', trigger: 'blur' },
+    ],
+    password: editMode
+      ? [
+          // 编辑态：允许留空；填了就要满足长度要求
+          {
+            validator: (_rule, value: string, callback: (error?: Error) => void) => {
+              if (value && value.length < 6) {
+                callback(new Error('密码长度不能少于 6 个字符'))
+                return
+              }
+              callback()
+            },
+            trigger: 'blur',
+          },
+        ]
+      : [
+          { required: true, message: '请输入密码', trigger: 'blur' },
+          { min: 6, max: 72, message: '密码长度需在 6~72 个字符之间', trigger: 'blur' },
+        ],
+    email: [{ type: 'email', message: '邮箱格式不正确', trigger: 'blur' }],
+  }
+}
+
+const passwordPlaceholder = ref('必填，至少 6 位')
 
 function resetForm() {
   form.username = ''
@@ -91,6 +92,9 @@ function resetForm() {
 
 function openCreate() {
   editingId.value = null
+  isEdit.value = false
+  rules.value = buildRules(false)
+  passwordPlaceholder.value = '必填，至少 6 位'
   resetForm()
   dialogVisible.value = true
 }
@@ -103,6 +107,9 @@ function openCreate() {
  */
 async function openEdit(row: User) {
   editingId.value = row.id
+  isEdit.value = true
+  rules.value = buildRules(true)
+  passwordPlaceholder.value = '留空表示不修改密码'
   form.username = row.username
   form.email = row.email ?? ''
   form.age = row.age ?? undefined
@@ -153,7 +160,7 @@ async function submitForm() {
       query.current = 1
     }
     dialogVisible.value = false
-    await refresh()
+    await loadUsers()
   } catch (error) {
     ElMessage.error((error as Error).message)
   } finally {
@@ -167,11 +174,11 @@ async function submitForm() {
 async function remove(row: User) {
   try {
     // 二次确认：删除是逻辑删除但列表里就看不到了，误点代价不小
-    await ElMessageBox.confirm(
-      `确定删除用户「${row.username}」吗？`,
-      '删除确认',
-      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
-    )
+    await ElMessageBox.confirm(`确定删除用户「${row.username}」吗？`, '删除确认', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
   } catch {
     // 用户点了取消，ElMessageBox 会 reject，这里静默返回
     return
@@ -184,7 +191,7 @@ async function remove(row: User) {
     if (users.value.length === 1 && query.current > 1) {
       query.current -= 1
     }
-    await refresh()
+    await loadUsers()
   } catch (error) {
     ElMessage.error((error as Error).message)
   }
@@ -215,19 +222,6 @@ async function loadUsers() {
   }
 }
 
-async function loadStats() {
-  try {
-    stats.value = await fetchUserStats()
-  } catch {
-    // 统计只是辅助信息，失败就不显示，不打扰用户
-    stats.value = null
-  }
-}
-
-async function refresh() {
-  await Promise.all([loadUsers(), loadStats()])
-}
-
 function search() {
   query.current = 1
   void loadUsers()
@@ -239,61 +233,23 @@ function resetSearch() {
   void loadUsers()
 }
 
-/** 缓存命中率显示成百分比；无请求时显示「—」而不是 0%，避免误导 */
-const hitRateText = computed(() => {
-  if (!stats.value) {
-    return '—'
-  }
-  const { cacheHitCount, cacheMissCount, cacheHitRate } = stats.value
-  if (cacheHitCount + cacheMissCount === 0) {
-    return '—'
-  }
-  return `${(cacheHitRate * 100).toFixed(1)}%`
-})
-
-onMounted(async () => {
-  // 探测后端是否可达，不可达时页面顶部给一条明确提示
-  try {
-    const data = await fetchHealth()
-    appStore.setApiReachable(true)
-    appStore.setRedis(String(data.redis ?? 'unknown'))
-  } catch {
-    appStore.setApiReachable(false)
-  }
-  await refresh()
-})
+onMounted(loadUsers)
 </script>
 
 <template>
-  <div class="user-page">
-    <el-alert
-      v-if="appStore.apiReachable === false"
-      type="error"
-      show-icon
-      :closable="false"
-      title="连不上后端"
-      description="请确认后端已在 8080 端口启动：cd backend 然后 mvn spring-boot:run"
-    />
-
-    <!-- 概览统计 -->
-    <div class="stat-row">
-      <div class="stat-card">
-        <span class="stat-label">用户总数</span>
-        <span class="stat-value">{{ stats?.totalUsers ?? '—' }}</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-label">缓存命中</span>
-        <span class="stat-value">{{ stats?.cacheHitCount ?? '—' }}</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-label">缓存未命中</span>
-        <span class="stat-value">{{ stats?.cacheMissCount ?? '—' }}</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-label">命中率</span>
-        <span class="stat-value">{{ hitRateText }}</span>
-      </div>
-    </div>
+  <div class="users-page">
+    <PageHeader title="用户管理" description="维护系统账号：新增、编辑、删除与检索">
+      <template #actions>
+        <el-button :loading="loading" @click="loadUsers">
+          <AppIcon name="refresh" :size="15" />
+          <span class="btn-text">刷新</span>
+        </el-button>
+        <el-button type="primary" class="app-btn-primary" @click="openCreate">
+          <AppIcon name="plus" :size="15" />
+          <span class="btn-text">新增用户</span>
+        </el-button>
+      </template>
+    </PageHeader>
 
     <el-card class="app-panel" shadow="never">
       <template #header>
@@ -308,25 +264,25 @@ onMounted(async () => {
               @clear="resetSearch"
             >
               <template #prefix>
-                <el-icon><svg viewBox="0 0 24 24" width="15" height="15" fill="none"><circle cx="11" cy="11" r="6.2" stroke="currentColor" stroke-width="1.7" /><path d="m15.6 15.6 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" /></svg></el-icon>
+                <AppIcon name="search" :size="15" />
               </template>
             </el-input>
             <el-button @click="search">查询</el-button>
             <el-button @click="resetSearch">重置</el-button>
-            <el-button :loading="loading" @click="refresh">刷新</el-button>
           </div>
 
-          <el-button type="primary" class="app-btn-primary" @click="openCreate">
-            新增用户
-          </el-button>
+          <span class="count-hint">共 {{ total }} 个用户</span>
         </div>
       </template>
 
       <el-table v-loading="loading" :data="users" border stripe>
         <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="username" label="用户名" min-width="140">
+        <el-table-column prop="username" label="用户名" min-width="150">
           <template #default="{ row }">
             <span class="username-cell">
+              <span class="row-avatar" aria-hidden="true">
+                {{ row.username.charAt(0).toUpperCase() }}
+              </span>
               {{ row.username }}
               <el-tag v-if="isSelf(row)" size="small" type="info" effect="plain">当前登录</el-tag>
             </span>
@@ -346,23 +302,18 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column prop="createdAt" label="创建时间" min-width="180" />
         <el-table-column prop="updatedAt" label="更新时间" min-width="180" />
-        <el-table-column label="操作" width="140" fixed="right">
+        <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" link @click="openEdit(row)">编辑</el-button>
-            <el-tooltip
-              :disabled="!isSelf(row)"
-              content="不能删除当前登录的账号"
-              placement="top"
-            >
+            <el-button type="primary" link @click="openEdit(row)">
+              <AppIcon name="edit" :size="14" />
+              <span class="btn-text">编辑</span>
+            </el-button>
+            <el-tooltip :disabled="!isSelf(row)" content="不能删除当前登录的账号" placement="top">
               <!-- span 包一层：disabled 的按钮不触发鼠标事件，tooltip 会失效 -->
               <span>
-                <el-button
-                  type="danger"
-                  link
-                  :disabled="isSelf(row)"
-                  @click="remove(row)"
-                >
-                  删除
+                <el-button type="danger" link :disabled="isSelf(row)" @click="remove(row)">
+                  <AppIcon name="trash" :size="14" />
+                  <span class="btn-text">删除</span>
                 </el-button>
               </span>
             </el-tooltip>
@@ -436,42 +387,14 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.user-page {
+.users-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
   max-width: var(--app-content-max);
-  margin: 0 auto;
 }
 
-/* ---------------- 统计卡 ---------------- */
-.stat-row {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.stat-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 14px 16px;
-  border-radius: var(--app-radius-inner);
-  background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color-lighter);
-  box-shadow: var(--app-shadow-panel);
-}
-
-.stat-label {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-
-.stat-value {
-  font-size: 22px;
-  font-weight: 600;
-  line-height: 1.1;
-  color: var(--el-text-color-primary);
+.btn-text {
+  margin-left: 6px;
 }
 
 /* ---------------- 列表头 ---------------- */
@@ -491,13 +414,34 @@ onMounted(async () => {
 }
 
 .search-input {
-  width: 260px;
+  width: 280px;
 }
 
+.count-hint {
+  font-size: var(--app-fs-caption);
+  color: var(--el-text-color-secondary);
+}
+
+/* ---------------- 表格 ---------------- */
 .username-cell {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+}
+
+/* 行内首字母头像：让长表格里每行有个视觉锚点，扫读更快 */
+.row-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--app-gradient-primary);
+  flex: none;
 }
 
 .muted {
@@ -511,10 +455,6 @@ onMounted(async () => {
 
 /* ---------------- 响应式 ---------------- */
 @media (max-width: 900px) {
-  .stat-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .search-input {
     width: 100%;
   }

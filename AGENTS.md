@@ -182,13 +182,20 @@ backend/src/main/java/com/example/myapp/
 
 frontend/src/
 ├── api/          # http.ts（axios 实例 + 拦截器）、auth.ts（登录/注册接口）、user.ts（接口定义）
-├── components/   # AuthLayout.vue（登录/注册共用外壳与共享表单样式）、FieldIcon.vue（内联 SVG 图标）
-├── styles/       # tokens.css（全局设计令牌：品牌色、圆角、阴影、主按钮渐变）
+├── components/
+│   ├── layout/   # AppLayout（外壳）、AppSidebar（侧栏）、AppHeader（顶栏+面包屑）、
+│   │             # PageHeader（页面标题区）、StatCard（统计卡）
+│   ├── AuthLayout.vue   # 登录/注册共用外壳与共享表单样式
+│   ├── FieldIcon.vue    # 登录/注册表单的输入框图标
+│   ├── AppIcon.vue      # 后台通用图标集（name 驱动）
+│   └── icons.ts         # AppIconName 类型（<script setup> 不能导出类型，故单独成文件）
+├── styles/       # tokens.css（全局设计令牌：品牌色、状态色、布局尺寸、字号梯度、阴影）
 ├── router/       # 路由表 + 未登录守卫（public 页面：/login、/register）
-├── stores/       # Pinia store（setup 写法），auth.ts 持有登录态
-├── views/        # 页面组件，一页一文件（LoginView / RegisterView / HomeView）
+├── stores/       # Pinia store：auth.ts 登录态、app.ts 侧栏折叠与连通性
+├── utils/        # jwt.ts（仅用于展示的令牌载荷解析）
+├── views/        # 页面：LoginView / RegisterView / DashboardView / UsersView / SettingsView
 ├── bootstrap.ts  # 把 api 层的令牌注入与 401 回调接到 store / 路由上
-├── App.vue       # 根布局，不放业务逻辑
+├── App.vue       # 只决定用哪种外壳（免登录页 vs AppLayout）
 └── main.ts       # 应用装配
 ```
 
@@ -198,6 +205,18 @@ frontend/src/
 > **设计令牌（品牌色、卡片圆角、阴影、主按钮渐变）统一放在 `src/styles/tokens.css` 的 `:root`**，
 > 登录页、注册页、用户管理页都只引用变量、不写字面值。某一页需要新颜色/新尺寸时，
 > 先往 tokens.css 加，不要在页面里就地写死 —— 否则「三个页面像三个产品」会从这里开始。
+>
+> **配色约定（换肤时必读）**：品牌色是青绿 → 天蓝（`--brand-from` / `--brand-to`），
+> 但**承载白字的大色块不能用最亮的青**。当前值是按对比度反推的：
+> 白字 on `--brand-from`(#0f766e) = 5.47:1、on `--brand-to`(#0f7fa6) = 4.56:1，均达 WCAG AA。
+> 亮青 `--brand-accent`(#22d3ee) 只允许用在**装饰**（光斑、小圆点、选中亮条），
+> 浅底上的文字/链接一律用 `--brand-ink`(#0d6e66，白底 6.11:1)。
+> 侧栏常态文字是 0.86 透明度的白（0.76 在渐变中段只有 4.38:1，不达标）。
+> **改配色请同时重算对比度**，不要只凭观感调亮 —— 上一版就是把渐变调到亮青，
+> 结果登录页副标题只有 2.14:1，几乎读不清。
+>
+> 状态色（正常/异常/警告）统一用 `--app-status-*` 令牌，不要在各页面裸写色值，
+> 否则「工作台」和「系统设置」的正常色会不一致。
 >
 > 其中共享表单样式是**非 scoped** 的（表单由父组件插槽传入，scoped 样式碰不到插槽内容），
 > 所以类名一律带 `auth-` / `field-` 前缀避免全局污染 —— 这是有意为之，不是漏写 scoped。
