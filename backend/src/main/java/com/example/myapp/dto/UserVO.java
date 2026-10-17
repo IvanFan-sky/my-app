@@ -34,6 +34,12 @@ public class UserVO {
     /** 个人简介 */
     private String bio;
     private Integer age;
+    /**
+     * 令牌版本号。**有意暴露**给客户端：它不是秘密（只是个自增计数），
+     * 前端排查"为什么我改完密码被踢下线"时需要看到它。
+     * 真正起作用的是服务端每次请求的比对（见 AuthInterceptor）。
+     */
+    private Integer tokenVersion;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -42,7 +48,7 @@ public class UserVO {
             return null;
         }
         return new UserVO(user.getId(), user.getUsername(), user.getNickname(), user.getRole(),
-                user.getEmail(), user.getBio(), user.getAge(),
+                user.getEmail(), user.getBio(), user.getAge(), user.getTokenVersion(),
                 user.getCreatedAt(), user.getUpdatedAt());
     }
 }

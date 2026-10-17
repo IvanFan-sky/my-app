@@ -14,6 +14,7 @@ import com.example.myapp.dto.RegisterForm;
 import com.example.myapp.dto.UserVO;
 import com.example.myapp.entity.User;
 import com.example.myapp.security.JwtTokenProvider;
+import com.example.myapp.security.TokenInvalidException;
 import com.example.myapp.service.AuthService;
 import com.example.myapp.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -84,12 +85,11 @@ public class AuthServiceImpl implements AuthService {
             throw unauthorized();
         }
 
-        String token = tokenProvider.createToken(user.getId(), user.getUsername());
         // 「连续失败」语义：成功一次就把计数清零，否则用户正常登录过、
         // 隔几天再输错两次就被锁，会显得莫名其妙
         loginAttemptCache.clear(username);
         log.info("登录成功 username={} userId={}", user.getUsername(), user.getId());
-        return new LoginResponse(token, "Bearer", tokenProvider.getExpireSeconds(), UserVO.from(user));
+        return issueTokens(user);
     }
 
     @Override
@@ -130,14 +130,13 @@ public class AuthServiceImpl implements AuthService {
             throw new BizException(ErrorCode.CONFLICT, "用户名已被占用，请换一个");
         }
 
-        // 注册即登录：直接签发令牌，省掉「注册完再登一次」这一步
-        String token = tokenProvider.createToken(user.getId(), user.getUsername());
-        // 重新读一次再返回：created_at / updated_at 由数据库生成，
+        // 注册即登录：直接签发令牌对，省掉「注册完再登一次」这一步。
+        // 先重新读一次再签发：created_at / updated_at 由数据库生成，
         // 刚 save 完的实体上还是 null，直接返回会让前端拿到空时间
         // （与 UserController.create 是同一个问题）
         User fresh = userService.getById(user.getId());
         log.info("注册成功 username={} userId={}", user.getUsername(), user.getId());
-        return new LoginResponse(token, "Bearer", tokenProvider.getExpireSeconds(), UserVO.from(fresh));
+        return issueTokens(fresh);
     }
 
     @Override
@@ -184,7 +183,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public void changePassword(Long userId, PasswordForm form) {
+    public LoginResponse changePassword(Long userId, PasswordForm form) {
         User user = userService.getById(userId);
         if (user == null) {
             log.warn("修改密码失败：用户不存在或已删除 userId={}", userId);
@@ -210,12 +209,75 @@ public class AuthServiceImpl implements AuthService {
         userService.overwriteEditable(user.getId(),
                 user.getNickname(), user.getEmail(), user.getBio(), user.getAge(),
                 userService.encodePassword(form.getNewPassword()));
-        // 密码不进缓存，但 updated_at 变了，一并失效保证一致
+        // overwriteEditable 在写入新密码的同一条 SQL 里把 token_version +1，
+        // 所以**所有已签发的令牌（含 refresh）此刻起全部失效** ——
+        // 这正是「改密码能把别的设备踢下线」的实现方式。
         userCache.evict(userId);
 
-        // 注意：这里**不**吊销其它会话。无状态 JWT 无服务端会话可销，
-        // 旧令牌在过期前依然有效；要做到即时失效需要 Redis 黑名单（独立需求）。
-        log.info("密码已修改 userId={} username={}", userId, user.getUsername());
+        // 重新读：一是拿新版本号，二是让返回的 UserVO 带最新的 updatedAt
+        User fresh = userService.getById(userId);
+        log.info("密码已修改，已作废该用户全部旧令牌 userId={} username={}", userId, user.getUsername());
+
+        // **必须返回新的令牌对**：当前这端的旧令牌也已被作废，
+        // 不换新的话用户改完密码立刻被踢回登录页 —— 那不是他想要的。
+        return issueTokens(fresh);
+    }
+
+    @Override
+    public LoginResponse refresh(String refreshToken) {
+        if (!StringUtils.hasText(refreshToken)) {
+            throw new BizException(ErrorCode.UNAUTHORIZED, "登录已失效，请重新登录");
+        }
+
+        JwtTokenProvider.ParsedToken parsed;
+        try {
+            parsed = tokenProvider.parse(refreshToken.trim());
+        } catch (TokenInvalidException e) {
+            // 不区分「过期」「签名错」「格式错」：对外都是同一句话，
+            // 否则等于告诉攻击者他手里的令牌是哪种状态
+            log.debug("刷新令牌无效: {}", e.getMessage());
+            throw new BizException(ErrorCode.UNAUTHORIZED, "登录已失效，请重新登录");
+        }
+
+        // 类型必须是 refresh。不校验的话，access 也能拿来换新令牌，
+        // 「access 只有 15 分钟」这条防线自己就没了。
+        if (!parsed.isRefresh()) {
+            log.info("试图用非 refresh 令牌刷新 userId={}", parsed.userId());
+            throw new BizException(ErrorCode.UNAUTHORIZED, "登录已失效，请重新登录");
+        }
+
+        User user = userService.getById(parsed.userId());
+        if (user == null) {
+            log.info("刷新令牌指向的用户已不存在 userId={}", parsed.userId());
+            throw new BizException(ErrorCode.UNAUTHORIZED, "登录已失效，请重新登录");
+        }
+
+        // 版本号比对：改过密码/角色的 refresh 必须失效，否则「撤销」不彻底
+        int currentVersion = user.getTokenVersion() == null ? 0 : user.getTokenVersion();
+        if (parsed.tokenVersion() != currentVersion) {
+            log.info("刷新令牌版本已过期 userId={} 令牌={} 当前={}",
+                    parsed.userId(), parsed.tokenVersion(), currentVersion);
+            throw new BizException(ErrorCode.UNAUTHORIZED, "密码或权限已变更，请重新登录");
+        }
+
+        log.debug("刷新令牌成功 userId={}", parsed.userId());
+        // 轮换：新的 access + 新的 refresh，旧的 refresh 到期自然失效
+        return issueTokens(user);
+    }
+
+    /**
+     * 签发一对令牌并组装登录响应。
+     *
+     * <p>access 与 refresh 用**同一个 token_version**，两者一起被撤销。
+     * 前端拿 refreshToken 去 /api/auth/refresh 换来新的一对。
+     */
+    private LoginResponse issueTokens(User user) {
+        int version = user.getTokenVersion() == null ? 0 : user.getTokenVersion();
+        String access = tokenProvider.createAccessToken(user.getId(), user.getUsername(), version);
+        String refresh = tokenProvider.createRefreshToken(user.getId(), user.getUsername(), version);
+        // 参数顺序与 LoginResponse 的字段顺序一致：token, refreshToken, tokenType, expiresIn, user
+        return new LoginResponse(access, refresh, "Bearer",
+                tokenProvider.getAccessSeconds(), UserVO.from(user));
     }
 
     /** 去掉首尾空白；空白一律视为未填写（写 null 而不是空串） */

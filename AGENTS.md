@@ -199,14 +199,15 @@ backend/src/main/java/com/example/myapp/
 └── service/ + service/impl # 业务逻辑，继承 IService / ServiceImpl
 
 backend/src/main/resources/db/migration/   # Flyway 迁移脚本，表结构的唯一来源
-├── V1__init.sql            # 建表 + 种子账号
-└── V2__profile_role.sql    # 增加 nickname / role / bio
+├── V1__init.sql                # 建表 + 种子账号
+├── V2__profile_role.sql        # 增加 nickname / role / bio
+└── V3__security_and_audit.sql  # email 索引 + token_version + 审计日志表
 
 backend/src/test/java/com/example/myapp/
 ├── MyAppApplicationTests.java  # 容器冒烟
 ├── support/ApiTestSupport.java # 集成测试基类（发请求/断言/造数据/清理）
 └── api/                        # AuthFlowTest / PermissionTest / ProfileTest /
-                                # LoginLockoutTest / UserCrudTest
+                                # LoginLockoutTest / UserCrudTest / TokenLifecycleTest
 
 frontend/src/
 ├── api/          # http.ts（axios 实例 + 拦截器）、auth.ts（登录/注册接口）、user.ts（接口定义）
@@ -216,12 +217,15 @@ frontend/src/
 │   ├── AuthLayout.vue   # 登录/注册共用外壳与共享表单样式
 │   ├── FieldIcon.vue    # 登录/注册表单的输入框图标
 │   ├── AppIcon.vue      # 后台通用图标集（name 驱动）
+│   ├── StatusPage.vue   # 404 / 403 状态页的共用外观
 │   └── icons.ts         # AppIconName 类型（<script setup> 不能导出类型，故单独成文件）
 ├── styles/       # tokens.css（全局设计令牌：品牌色、状态色、布局尺寸、字号梯度、阴影）
 ├── router/       # 路由表 + 未登录守卫（public 页面：/login、/register）
-├── stores/       # Pinia store：auth.ts 登录态、app.ts 侧栏折叠与连通性
+├── stores/       # Pinia store：auth.ts 登录态（含双令牌与续期）、
+│                 # system.ts 健康状态与统计（工作台/系统设置共享）、app.ts 侧栏折叠
 ├── utils/        # jwt.ts（仅用于展示的令牌载荷解析）
-├── views/        # 页面：Login/Register/Dashboard/Users/Profile/Settings
+├── views/        # 页面：Login/Register/Dashboard/Users/Profile/Settings/
+│                 # NotFound(404)/Forbidden(403)
 ├── bootstrap.ts  # 把 api 层的令牌注入与 401 回调接到 store / 路由上
 ├── App.vue       # 只决定用哪种外壳（免登录页 vs AppLayout）
 └── main.ts       # 应用装配
@@ -344,11 +348,12 @@ frontend/src/
 
 | 方法 | 路径 | 需登录 | 说明 |
 |---|---|---|---|
-| POST | `/api/auth/login` | 否 | 入参 `{username, password}`，成功返回 `{token, tokenType, expiresIn, user}` |
+| POST | `/api/auth/login` | 否 | 入参 `{username, password}`，成功返回 `{token, refreshToken, tokenType, expiresIn, user}` |
 | POST | `/api/auth/register` | 否 | 入参 `{username, password, email?}`，**成功也返回令牌（注册即登录）** |
 | GET | `/api/auth/me` | 是 | 返回当前令牌对应的用户（含 `role`/`nickname`/`bio`） |
 | PUT | `/api/auth/profile` | 是 | 改**自己**的 `nickname`/`email`/`bio`/`age`。**路径无 id，身份只从令牌取** |
-| PUT | `/api/auth/password` | 是 | 改自己的密码，必须传 `oldPassword` |
+| PUT | `/api/auth/password` | 是 | 改自己的密码，必须传 `oldPassword`；**返回新的令牌对** |
+| POST | `/api/auth/refresh` | 否 | 用 `refreshToken` 换一对新令牌。**必须在白名单**：调用时 access 往往已过期 |
 | GET | `/api/health` | 否 | 健康检查（白名单，供前端探测后端是否可达） |
 
 除白名单（`/api/auth/login`、`/api/auth/register`、`/api/health`）外，`/api/**` 全部需要
@@ -361,6 +366,19 @@ frontend/src/
 - 登录失败（用户不存在 / 密码错误）返回**完全相同**的错误码与文案，且用户不存在时
   也会空跑一次 BCrypt 校验来对齐响应时间 —— 否则「文案一样但快慢不同」照样能枚举用户名。
   改登录逻辑时不要破坏这两点。
+- **双令牌：access 15 分钟 / refresh 7 天**（`app.jwt.access-minutes` / `refresh-minutes`）。
+  两者都在 `typ` 声明里标明类型，**拦截器只接受 access，刷新接口只接受 refresh**。
+  不校验 `typ` 的话，拿 7 天的 refresh 当 access 用就能绕过 15 分钟短有效期 ——
+  这是这类实现最常见、也最难被发现的漏洞，`TokenLifecycleTest` 有专门断言。
+- **令牌版本号（`ver` 声明 + `sys_user.token_version`）实现「立即撤销」**：
+  改密码（`overwriteEditable` 在同一条 UPDATE 里自增）、改角色（`bumpTokenVersion`）
+  都会让该用户**所有已签发的 access 与 refresh 一起失效**。
+  为什么不用 Redis 黑名单：黑名单要为每个令牌存一条、还要清理过期，
+  且 Redis 一清空撤销就没了；版本号是每用户一个整数，在数据库里天然持久。
+  代价是撤销粒度是「全设备」—— 改密码后其他设备也要重登，这通常正是想要的语义。
+  **改密码接口因此必须返回新令牌对**，否则当前这端也会被踢下线。
+- **`jti` 必须保留**：没有它，同一秒内为同一用户签发的两个令牌字节完全相同，
+  「刷新时轮换 refresh」就成了空操作（新旧 refresh 一模一样）。
 - **注册的用户名判重必须靠唯一索引兜底，不能只写「先查一次有没有」**。
   原因：`@TableLogic` 让查询自动带上 `deleted = 0`，所以「已被逻辑删除的同名用户」
   查不出来，但它仍然占着 `username` 的唯一索引（实测会抛 `Duplicate entry`）。
@@ -379,8 +397,13 @@ frontend/src/
 | PUT | `/api/users/{id}` | 修改，`password` 留空表示不改密码 |
 | DELETE | `/api/users/{id}` | 逻辑删除（只置 `deleted = 1`） |
 
-`keyword` 的邮箱匹配**没有索引**（`sys_user` 只有 username 唯一索引与 created_at 普通索引），
-会走全表扫描。当前数据量可接受；量大了应给 email 建索引或改前缀匹配。
+`keyword` 是**前缀匹配**（`LIKE 'kw%'`），`V3` 已给 email 建了 `idx_sys_user_email`，
+username 有唯一索引，两边都能用上索引。
+
+> 为什么不做包含匹配：`LIKE '%kw%'` 两侧通配，**任何 B-Tree 索引都用不上**，
+> 加索引也没用。代价是不能再按中间片段搜（搜 `example` 找不到 `alice@example.com`）。
+> 若确实需要包含匹配，应换 MySQL 的 ngram 全文索引，而不是退回两侧通配。
+> `TokenLifecycleTest#keywordSearchIsPrefixOnly` 守着这个语义。
 
 ### 权限模型（重要）
 
@@ -412,13 +435,18 @@ frontend/src/
 **改密码失败返回 4000 而不是 4010**：前端 http 拦截器见到 4010 会清登录态并跳登录页，
 用户只是打错一次旧密码却被登出，体验极差。
 
-**已知限制**：改密码后，别处已签发的旧令牌在过期前仍然有效。
-无状态 JWT 没有服务端会话可销，要做到即时失效需要 Redis 黑名单（独立需求）。
+**令牌撤销是真实的**：改密码或改角色会把 `token_version` +1，
+该用户所有已签发的 access 与 refresh 在下一次请求就被拒（`TokenLifecycleTest` 覆盖）。
+仍有两点限制，别误以为它做了更多：
+1. 撤销粒度是「全设备」—— 不能只踢掉某一台。要按会话撤销得引入 session id。
+2. 「退出登录」只清客户端令牌，不通知服务端（没法把当前令牌单独作废）。
+   如需「退出即失效」，要额外按 jti 做黑名单。
 
 ### 登录失败限制
 
 连续登录失败达到 `app.security.login.max-attempts`（默认 5）后，该用户名被临时锁定
-`lock-minutes`（默认 15）分钟，返回 `code=4290`。实现在 `cache/LoginAttemptCache`：
+`lock-minutes`（**默认已从 15 收紧到 3**）分钟，返回 `code=4290`。
+实现在 `cache/LoginAttemptCache`：
 
 - key `my-app:login:fail:{username}`，**每次失败都刷新 TTL**（滑动窗口）；
 - **登录成功即清零** —— 「连续失败」语义，否则用户正常登录过、隔几天错两次就被锁；
@@ -429,8 +457,9 @@ frontend/src/
   缓存是加速与防护手段，不该成为单点故障。
 
 > **已知取舍**：按用户名锁定意味着攻击者可以故意输错来锁死别人的账号（DoS）。
-> 缓解是「锁定时间短 + 到期自动解锁 + 成功清零」。面向公网的产品建议再叠加
-> IP+用户名双维度计数或验证码；本项目按「管理后台」定位先做到这一步。
+> 已把锁定时长压到 3 分钟来控制影响（每 3 分钟只允许试 5 次，自动化爆破成本仍不可接受，
+> 而误伤控制在「喝口水就过去了」的量级）。彻底解决需要 IP+用户名双维度计数或验证码，
+> 属独立需求 —— 真要上线公网时优先补这个。
 
 ---
 
@@ -478,7 +507,8 @@ frontend/src/
   于是「已删除的用户名」仍占位，同名新用户会插入失败。要真正允许重用用户名，
   需把唯一索引改成 `(username, deleted)` 组合索引，或改为物理删除。**改这块前先确认需求。**
 - **表结构由 Flyway 管理**，脚本在 `backend/src/main/resources/db/migration/`，
-  命名 `V<版本>__<说明>.sql`。当前 `V1__init.sql`（建表 + 种子）、`V2__profile_role.sql`。
+  命名 `V<版本>__<说明>.sql`。当前 V1（建表+种子）、V2（nickname/role/bio）、
+  V3（email 索引 + token_version + 审计表）。
 - **绝不修改已发布的迁移脚本**：`validate-on-migrate: true` 会比对 checksum，
   改过的文件会让已有环境**启动失败**。要变更结构就新增 `V3__xxx.sql`。
   这条规则看起来麻烦，但它正是「大家库结构一致」的保证。
@@ -488,8 +518,14 @@ frontend/src/
 - 新增环境（CI、新同事）不需要手工建表：建好库、启动应用即可。
 - 迁移脚本里不要写 `CREATE DATABASE` / `USE`：库由外部创建，Flyway 只负责表。
 - `sys_user` 现有字段：`id` / `username`（登录标识，唯一）/ `nickname`（显示名）/
-  `password_hash` / `role`（ADMIN/USER）/ `email` / `bio` / `age` / `deleted` / 时间戳。
+  `password_hash` / `role`（ADMIN/USER）/ `email` / `bio` / `age`/
+  `token_version`（令牌版本号，改密/改角色时自增）/ `deleted` / 时间戳。
   **`username` 与 `nickname` 是两件事**：前者用于登录，后者只用于展示，个人中心只让改后者。
+- `sys_audit_log`：审计日志，**只增不改、不做逻辑删除**。
+  `actor_id` / `actor_username` / `action` / `target_type` / `target_id` /
+  `target_username` / `detail`（JSON 字符串）/ `ip` / `success` / `created_at`。
+  用户名是**冗余存的字符串**，不是只存 id —— 用户被改名或删除后，日志仍然读得懂
+  「当时是谁对谁做了什么」；只存 id 的话历史会变成一堆孤儿数字。
 
 ---
 
@@ -505,8 +541,10 @@ frontend/src/
     `openssl rand -base64 48` 生成），并把 `app.jwt.require-external-secret` 设为 `true`。
     设成 true 后若忘记配密钥，应用会**直接启动失败**，而不是悄悄用公开密钥签发令牌。
   - 密钥长度不足 32 字符时同样启动失败（jjwt 会拒绝弱密钥）。
-  - 令牌有效期 `app.jwt.expire-minutes` 默认 120 分钟。调大要权衡：
-    无状态 JWT 无法在服务端提前失效，有效期越长，令牌泄露后的危险窗口越大。
+  - 令牌有效期拆成两级：`app.jwt.access-minutes`（默认 15，随每个请求发送）
+    与 `app.jwt.refresh-minutes`（默认 7 天，只用于续期）。
+    调大 access 会放大令牌泄露后的危险窗口；想「少刷新」应该调 refresh 而不是它。
+    refresh 必须 ≥ access，否则刷新出来的令牌立刻又过期（启动时会校验并拒绝启动）。
 - `application.yml` 里的 `log-impl: StdOutImpl` 会把每条 SQL 打到控制台，
   **上线前必须删掉**。
 - 前端只有 `VITE_` 前缀的变量会暴露给浏览器，因此**前端环境变量里不放任何密钥**。

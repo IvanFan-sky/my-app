@@ -16,19 +16,21 @@ import { computed, onMounted, ref } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import StatCard from '@/components/layout/StatCard.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
-import { fetchHealth, fetchUserStats, pageUsers } from '@/api/user'
-import type { User, UserStats } from '@/api/user'
+import { pageUsers } from '@/api/user'
+import type { User } from '@/api/user'
 import { useAuthStore } from '@/stores/auth'
+import { useSystemStore } from '@/stores/system'
 
 const auth = useAuthStore()
+// 健康状态与统计来自共享 store：系统设置页用的是同一份数据，
+// 两页之间切换不会重复请求，也不会出现两页显示不一致的情况
+const system = useSystemStore()
 
-const stats = ref<UserStats | null>(null)
+const stats = computed(() => system.stats)
 const recent = ref<User[]>([])
 const loadingRecent = ref(false)
-/** 后端与 Redis 状态；null 表示尚未探测 */
-const backendOk = ref<boolean | null>(null)
-const redisStatus = ref<string>('—')
-const redisOk = computed(() => redisStatus.value === 'pong')
+const backendOk = computed(() => system.backendOk)
+const redisOk = computed(() => system.redisOk)
 
 /** 按当前时间给出问候语，比固定「欢迎」更有生活感 */
 const greeting = computed(() => {
@@ -54,15 +56,6 @@ function shortTime(v?: string) {
   return v.replace('T', ' ').slice(0, 16)
 }
 
-async function loadStats() {
-  try {
-    stats.value = await fetchUserStats()
-  } catch {
-    // 概览类数据失败不打扰用户，卡片会显示占位符
-    stats.value = null
-  }
-}
-
 async function loadRecent() {
   loadingRecent.value = true
   try {
@@ -75,20 +68,10 @@ async function loadRecent() {
   }
 }
 
-async function loadHealth() {
-  try {
-    const data = await fetchHealth()
-    backendOk.value = true
-    redisStatus.value = String(data.redis ?? 'unknown')
-  } catch {
-    backendOk.value = false
-    redisStatus.value = '—'
-  }
-}
-
 async function refreshAll() {
-  // 三个请求互不依赖，并发发出，省一半等待时间
-  await Promise.all([loadStats(), loadRecent(), loadHealth()])
+  // 统计与健康状态由 store 统一拉取（内部并发），最近用户单独拉：
+  // 前者两页共享、后者只有这一页用，没必要进共享缓存
+  await Promise.all([system.load(true), loadRecent()])
 }
 
 onMounted(refreshAll)

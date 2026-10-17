@@ -80,6 +80,29 @@ public interface AuthService {
      *
      * @param userId 当前登录用户主键（来自令牌）
      * @param form   新旧密码（已通过 @Valid）
+     * @return **新的令牌对**：改密会让旧的 access/refresh 立即失效（版本号 +1），
+     *         如果不返回新令牌，当前这端也会被踢下线 —— 那不是用户想要的。
      */
-    void changePassword(Long userId, PasswordForm form);
+    LoginResponse changePassword(Long userId, PasswordForm form);
+
+    /**
+     * 用 refresh token 换一对新令牌（access + refresh），实现「无需重新输密码的续期」。
+     *
+     * <p>必须校验的东西，一个都不能少：
+     * <ol>
+     *   <li>令牌类型必须是 refresh —— 拿 access 来换会让「短有效期」形同虚设；</li>
+     *   <li>用户仍然存在且未被删除；</li>
+     *   <li>令牌里的 token_version 与库里当前值一致 —— 改密码后旧 refresh 必须失效，
+     *       否则「改密码能踢掉所有设备」这句话就不成立。</li>
+     * </ol>
+     *
+     * <p>**轮换（rotation）**：每次刷新都签发新的 refresh，旧的自然过期。
+     * 这样即使某个 refresh 被窃取，攻击者用一次之后合法用户下次刷新就会失败，
+     * 从而暴露异常（虽然本项目没有实现「重放检测」，但至少缩短了被利用的窗口）。
+     *
+     * @param refreshToken 客户端持有的 refresh token
+     * @return 与登录相同结构的新令牌对
+     * @throws com.example.myapp.common.BizException 令牌无效/类型不对/版本过期/用户不存在（4010）
+     */
+    LoginResponse refresh(String refreshToken);
 }

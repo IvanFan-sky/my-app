@@ -78,4 +78,16 @@ public interface UserService extends IService<User> {
      */
     void overwriteEditable(Long id, String nickname, String email, String bio, Integer age,
                            String passwordHash);
+
+    /**
+     * 把用户的令牌版本号 +1，使其**所有已签发的令牌立即失效**。
+     *
+     * <p>用在哪：改角色（权限变了，旧令牌里的角色断言就过时了）、
+     * 以及管理员强制踢下线。改密码走 {@link #overwriteEditable}，
+     * 那里在同一条 UPDATE 里自增，不需要再调本方法。
+     *
+     * <p>调用方**必须**同时 {@code userCache.evict(id)}：版本号在 UserVO 里被缓存，
+     * 不失效的话拦截器会继续读到旧版本，撤销等于没做。
+     */
+    void bumpTokenVersion(Long id);
 }

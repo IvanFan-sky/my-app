@@ -62,6 +62,20 @@ public class User {
     private Integer age;
 
     /**
+     * 令牌版本号。
+     *
+     * <p>签发的 JWT 里带着签发时的版本；{@code AuthInterceptor} 比对「令牌里的版本」
+     * 与「库里当前版本」，不一致就拒绝。改密码 / 改角色时把它 +1，
+     * 于是所有已签发的旧令牌（含 refresh token）立即失效。
+     *
+     * <p>为什么不用 Redis 黑名单：黑名单要为每个令牌存一条、还要处理过期清理，
+     * 且 Redis 一清空（重启/误删）撤销就失效了。版本号是每用户一个整数，
+     * 存在数据库里，天然持久。代价是撤销粒度是「全设备」—— 改密码后其他设备也要重登，
+     * 这通常正是改密码想要的语义。
+     */
+    private Integer tokenVersion;
+
+    /**
      * 只读：数据库写入。
      *
      * <p>{@code FieldStrategy.NEVER} 的意思是「INSERT / UPDATE 语句里都不要带这一列」，

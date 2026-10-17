@@ -38,15 +38,23 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
         Page<User> page = page(new Page<>(current, size),
                 Wrappers.<User>lambdaQuery()
-                        // 用户名或邮箱任一命中即可。
-                        // 说明：sys_user 只有 username 的唯一索引和 created_at 的普通索引，
-                        // **email 上没有索引**，所以这块 like 会走全表扫描。
-                        // 当前数据量下可以接受；等用户量上来了应当给 email 建索引，
-                        // 或改用前缀匹配（like 'kw%'，能用上索引）。这里是有意取舍，不是没想到。
+                        /*
+                         * 用户名或邮箱任一**以关键字开头**即命中。
+                         *
+                         * 这里是前缀匹配（LIKE 'kw%'）而不是包含匹配（LIKE '%kw%'），
+                         * 原因很实在：两侧通配符**任何 B-Tree 索引都用不上**，
+                         * 无论加不加索引都是全表扫描。改成前缀后
+                         * idx_sys_user_email 与 username 的唯一索引都能生效。
+                         *
+                         * 代价：不能再按中间片段搜（搜 example 找不到 alice@example.com，
+                         * 得搜 alice 或 alice@）。用户量上千后，用「可预测的性能」
+                         * 换「更强的模糊匹配」是值得的；如果确实需要包含匹配，
+                         * 应换 MySQL 的 ngram 全文索引，而不是退回两侧通配。
+                         */
                         .and(kw != null, w -> w
-                                .like(User::getUsername, kw)
+                                .likeRight(User::getUsername, kw)
                                 .or()
-                                .like(User::getEmail, kw))
+                                .likeRight(User::getEmail, kw))
                         .orderByDesc(User::getId));
 
         // 转成 VO：Page 的 records 类型要跟着换，分页元信息（total/current/size）原样保留
@@ -121,7 +129,22 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         // 否则一次不带密码的资料保存就会把账号锁死。
         if (passwordHash != null) {
             wrapper.set(User::getPasswordHash, passwordHash);
+            // 改密码必须让旧令牌失效：否则泄露出去的令牌在有效期内一直能用，
+            // 「改密码」这个动作就失去了安全意义。
+            // 用 SQL 自增而不是「读出来 +1 写回去」：并发改密时后者会丢更新。
+            wrapper.setSql("token_version = token_version + 1");
         }
         update(wrapper);
+    }
+
+    @Override
+    public void bumpTokenVersion(Long id) {
+        if (id == null) {
+            return;
+        }
+        // 同样是 SQL 自增：并发（例如同时改角色和改密码）不会互相覆盖
+        update(Wrappers.<User>lambdaUpdate()
+                .eq(User::getId, id)
+                .setSql("token_version = token_version + 1"));
     }
 }

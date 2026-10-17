@@ -69,12 +69,37 @@ public class AuthInterceptor implements HandlerInterceptor {
             return reject(response, "登录已失效，请重新登录");
         }
 
+        // 只接受 access token。不校验这一点的话，把有效期 7 天的 refresh token
+        // 当 access 用就能绕过 15 分钟短有效期 —— 那 access 设多短都没意义。
+        if (!parsed.isAccess()) {
+            log.debug("用 refresh token 访问业务接口，已拒绝: userId={}", parsed.userId());
+            return reject(response, "登录已失效，请重新登录");
+        }
+
         // 走缓存：命中则完全不碰数据库
         UserVO user = userService.getUserVoById(parsed.userId());
         if (user == null) {
             // 令牌签名没问题，但用户已被删除。返回同一句话，不透露「这个 id 曾经存在」
             log.debug("令牌指向的用户不存在或已删除: id={}", parsed.userId());
             return reject(response, "登录已失效，请重新登录");
+        }
+
+        /*
+         * 令牌版本号比对 —— 「改密码后旧令牌立即失效」就是靠这一句实现的。
+         *
+         * 令牌里带的是签发时的版本；库里是当前版本。改密码/改角色会把版本 +1，
+         * 于是所有旧令牌（包括 refresh）在下一次请求就被拒。
+         * 版本号从缓存里的 UserVO 取，不额外查库；改密时同步 evict，
+         * 所以不存在「缓存旧版本导致撤销失效」的窗口。
+         *
+         * 缺省按 0 处理：V3 迁移之前创建的行 token_version 为 0，
+         * 与令牌里缺省写 0 保持一致。
+         */
+        int currentVersion = user.getTokenVersion() == null ? 0 : user.getTokenVersion();
+        if (parsed.tokenVersion() != currentVersion) {
+            log.info("令牌版本号已过期，拒绝访问（多半是改过密码或角色）: userId={} 令牌={} 当前={}",
+                    parsed.userId(), parsed.tokenVersion(), currentVersion);
+            return reject(response, "密码或权限已变更，请重新登录");
         }
 
         // role 来自缓存里的 UserVO：管理员被降级后，缓存失效的下一次请求即生效，

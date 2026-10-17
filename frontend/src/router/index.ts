@@ -65,13 +65,37 @@ const router = createRouter({
           component: () => import('@/views/SettingsView.vue'),
           meta: { title: '系统设置' },
         },
+        {
+          // 这两个状态页放在外壳内部，保留侧栏与顶栏 ——
+          // 用户迷路时至少能直接点导航去别处，而不是面对一个孤零零的页面
+          path: '404',
+          name: 'not-found',
+          component: () => import('@/views/NotFoundView.vue'),
+          meta: { title: '页面不存在' },
+        },
+        {
+          path: '403',
+          name: 'forbidden',
+          component: () => import('@/views/ForbiddenView.vue'),
+          meta: { title: '没有权限' },
+          // 403 也是「已登录才能看」的页面，但不需要管理员
+        },
       ],
     },
     {
-      // 兜底：未知路径回工作台。没有这一条时手打错地址会看到一片空白，
-      // 用户会以为应用坏了。
+      /*
+       * 兜底：未知路径交给 404 页。
+       *
+       * 以前是 redirect 到工作台 —— 手打错一个字母就被「传送」回首页，
+       * 用户既不知道地址错了、也无法分辨是不是系统故障。
+       * 现在显式告诉他不存在，并且保留侧栏，可以直接从导航走。
+       *
+       * 注意要排在最后：Vue Router 按顺序匹配，放前面会把所有路径都吃掉。
+       */
       path: '/:pathMatch(.*)*',
-      redirect: { name: 'dashboard' },
+      name: 'not-found-catch-all',
+      component: () => import('@/views/NotFoundView.vue'),
+      meta: { title: '页面不存在' },
     },
   ],
 })
@@ -98,11 +122,14 @@ router.beforeEach((to) => {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
 
-  // 管理员专属页面：非管理员别让他进去再吃一个 403。
-  // 这里同样只是体验层 —— 真正的拦截在后端。
+  // 管理员专属页面：非管理员让他看到 403 页，而不是弹个 toast 再默默送回工作台。
+  // toast 一闪而过，用户往往没看清就发现自己「被换了个页面」，说不清发生了什么。
+  // 这里同样只是体验层 —— 真正的拦截在后端 RoleInterceptor。
   if (to.meta.requiresAdmin && !auth.isAdmin) {
-    ElMessage.warning('该页面需要管理员权限')
-    return { name: 'dashboard' }
+    return {
+      name: 'forbidden',
+      query: { reason: `${String(to.meta.title ?? '该页面')}需要管理员权限` },
+    }
   }
   return true
 })

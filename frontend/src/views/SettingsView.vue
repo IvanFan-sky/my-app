@@ -7,17 +7,18 @@
  * 两页各管一件事，避免同一个信息在两处出现、改一处忘另一处。
  * 这里展示的两组数据都是**真实取到**的，不放点了没反应的开关。
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
-import { fetchHealth, fetchUserStats } from '@/api/user'
-import type { UserStats } from '@/api/user'
+import { useSystemStore } from '@/stores/system'
 
-const backendOk = ref<boolean | null>(null)
-const redisStatus = ref<string>('—')
-const stats = ref<UserStats | null>(null)
+// 与工作台共用同一份健康状态与统计：
+// 以前两页各发一遍 /api/health 和 /api/users/stats，既浪费又可能显示不一致
+const system = useSystemStore()
+const backendOk = computed(() => system.backendOk)
+const stats = computed(() => system.stats)
 
-const redisOk = computed(() => redisStatus.value === 'pong')
+const redisOk = computed(() => system.redisOk)
 
 const cacheRate = computed(() => {
   if (!stats.value) return '—'
@@ -26,28 +27,8 @@ const cacheRate = computed(() => {
   return `${(cacheHitRate * 100).toFixed(1)}%`
 })
 
-async function loadHealth() {
-  try {
-    const data = await fetchHealth()
-    backendOk.value = true
-    redisStatus.value = String(data.redis ?? 'unknown')
-  } catch {
-    backendOk.value = false
-    redisStatus.value = '—'
-  }
-}
-
-async function loadStats() {
-  try {
-    stats.value = await fetchUserStats()
-  } catch {
-    stats.value = null
-  }
-}
-
-onMounted(async () => {
-  await Promise.all([loadHealth(), loadStats()])
-})
+// 不传 force：30 秒内从别的页面切过来会直接用缓存，避免重复请求
+onMounted(() => system.load())
 </script>
 
 <template>

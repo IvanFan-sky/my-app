@@ -1,5 +1,10 @@
 import router from '@/router'
-import { setTokenGetter, setUnauthorizedHandler } from '@/api/http'
+import {
+  setForbiddenHandler,
+  setRefreshHandler,
+  setTokenGetter,
+  setUnauthorizedHandler,
+} from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 
 /**
@@ -28,5 +33,25 @@ export function setupApiInterceptors() {
       name: 'login',
       query: { redirect: router.currentRoute.value.fullPath },
     })
+  })
+
+  /*
+   * 续期：拦截器收到 401 时先来这里换一对新令牌，成功后自动重发原请求。
+   * 去重（同一时刻只刷新一次）在 http.ts 里做，这里只负责「怎么换」。
+   */
+  setRefreshHandler(async () => auth.refresh())
+
+  setForbiddenHandler(() => {
+    /*
+     * 已登录但角色不够：**不要**清登录态，也不要回登录页。
+     * 用户身份是好的，问题在于这个资源不归他 —— 送去登录页会让他反复重登，
+     * 还以为账号坏了。跳到 403 页把话说清楚。
+     *
+     * 已经在 403 页就不再跳，避免多个并发请求各自触发一次跳转。
+     */
+    if (router.currentRoute.value.name === 'forbidden') {
+      return
+    }
+    void router.replace({ name: 'forbidden' })
   })
 }

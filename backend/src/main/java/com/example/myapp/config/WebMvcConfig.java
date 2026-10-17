@@ -40,6 +40,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 .excludePathPatterns(
                         "/api/auth/login",
                         "/api/auth/register",
+                        // 刷新令牌：调用它时 access 往往已过期，必须放行
+                        "/api/auth/refresh",
                         "/api/health"
                 );
 

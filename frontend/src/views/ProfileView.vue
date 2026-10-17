@@ -111,8 +111,14 @@ async function savePassword() {
 
   savingPwd.value = true
   try {
-    await changePassword({ oldPassword: pwd.oldPassword, newPassword: pwd.newPassword })
-    ElMessage.success('密码已修改，请用新密码重新登录其他设备')
+    // 改密会让该用户**所有**旧令牌立即作废（token_version +1），
+    // 后端顺手返回一对新令牌；不套用的话当前这端也会被踢回登录页。
+    const result = await changePassword({
+      oldPassword: pwd.oldPassword,
+      newPassword: pwd.newPassword,
+    })
+    auth.applyLoginResult(result)
+    ElMessage.success('密码已修改，其他设备需要重新登录')
     pwd.oldPassword = ''
     pwd.newPassword = ''
     pwd.confirmPassword = ''

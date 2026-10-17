@@ -119,6 +119,10 @@ public class UserController {
             throw new BizException(ErrorCode.NOT_FOUND, "用户不存在: " + id);
         }
 
+        // 先记下库里的原始角色。下面会给 user.setRole(...) 赋新值，
+        // 若等到那时再比较「新旧是否相同」就永远相等，版本号也就不会被提升。
+        String previousRole = user.getRole();
+
         // 角色：未传表示不改；传了必须是白名单内的值
         if (StringUtils.hasText(form.getRole())) {
             // 不允许改自己的角色。否则唯一的管理员把自己降级后，
@@ -142,9 +146,15 @@ public class UserController {
         // 角色单独更新：它的语义是「不传就不改」，与上面「不传就清空」正好相反，
         // 混在同一个方法里会让调用者分不清，所以显式分开
         if (StringUtils.hasText(form.getRole())) {
+            boolean roleChanged = !user.getRole().equals(previousRole);
             userService.update(Wrappers.<User>lambdaUpdate()
                     .eq(User::getId, id)
                     .set(User::getRole, user.getRole()));
+            if (roleChanged) {
+                // 角色变了，旧令牌里那份权限断言就过时了（比如从 ADMIN 降成 USER，
+                // 但令牌里仍是 ADMIN 被缓存的角色拦不住）。作废它的全部令牌强制重登。
+                userService.bumpTokenVersion(id);
+            }
         }
         // 必须先失效再回源，否则下一次读会拿到旧缓存
         userCache.evict(id);

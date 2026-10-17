@@ -1,9 +1,17 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { ROLE_ADMIN, fetchMe, login as loginApi, register as registerApi } from '@/api/auth'
-import type { AuthUser, RegisterPayload } from '@/api/auth'
+import {
+  ROLE_ADMIN,
+  fetchMe,
+  login as loginApi,
+  refreshTokens,
+  register as registerApi,
+} from '@/api/auth'
+import type { AuthUser, LoginResult, RegisterPayload } from '@/api/auth'
+import { useSystemStore } from '@/stores/system'
 
 const TOKEN_KEY = 'my-app.token'
+const REFRESH_KEY = 'my-app.refresh'
 const USER_KEY = 'my-app.user'
 
 /**
@@ -36,6 +44,8 @@ function readStoredUser(): AuthUser | null {
  */
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string>(localStorage.getItem(TOKEN_KEY) ?? '')
+  /** refresh token：只在续期时使用，不随业务请求发送 */
+  const refreshToken = ref<string>(localStorage.getItem(REFRESH_KEY) ?? '')
   const user = ref<AuthUser | null>(readStoredUser())
 
   /** 是否已持有令牌（不代表后端一定还认它，见 restore()） */
@@ -54,11 +64,42 @@ export const useAuthStore = defineStore('auth', () => {
   /** 头像/头部展示用的名称：优先显示名，没设就回退用户名 */
   const displayName = computed(() => user.value?.nickname || user.value?.username || '')
 
-  function setSession(newToken: string, newUser: AuthUser) {
+  function setSession(newToken: string, newRefreshToken: string, newUser: AuthUser) {
     token.value = newToken
+    refreshToken.value = newRefreshToken
     user.value = newUser
     localStorage.setItem(TOKEN_KEY, newToken)
+    localStorage.setItem(REFRESH_KEY, newRefreshToken)
     localStorage.setItem(USER_KEY, JSON.stringify(newUser))
+  }
+
+  /**
+   * 直接用后端返回的令牌对更新会话。
+   *
+   * <p>用在两处：登录/注册成功、以及**改完密码**——改密会让 token_version +1，
+   * 于是当前这端手里的旧令牌也立即作废，后端会顺手返回一对新的。
+   */
+  function applyLoginResult(result: LoginResult) {
+    setSession(result.token, result.refreshToken, result.user)
+  }
+
+  /**
+   * 用 refresh token 换一对新令牌。
+   *
+   * <p>由 http.ts 的拦截器在收到 401 时调用（见 bootstrap.ts 的注入）。
+   * 返回 false 表示续期失败（refresh 也过期了，或已被改密作废），
+   * 此时交给上层按未登录处理 —— 这里**不**主动清会话，避免和 401 处理器重复跳转。
+   */
+  async function refresh(): Promise<boolean> {
+    if (!refreshToken.value) {
+      return false
+    }
+    try {
+      applyLoginResult(await refreshTokens(refreshToken.value))
+      return true
+    } catch {
+      return false
+    }
   }
 
   /**
@@ -82,15 +123,17 @@ export const useAuthStore = defineStore('auth', () => {
    */
   function clearSession() {
     token.value = ''
+    refreshToken.value = ''
     user.value = null
     localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem(REFRESH_KEY)
     localStorage.removeItem(USER_KEY)
   }
 
   /** 登录：成功后写入会话 */
   async function login(username: string, password: string) {
     const result = await loginApi({ username, password })
-    setSession(result.token, result.user)
+    applyLoginResult(result)
     return result
   }
 
@@ -100,12 +143,14 @@ export const useAuthStore = defineStore('auth', () => {
    */
   async function register(payload: RegisterPayload) {
     const result = await registerApi(payload)
-    setSession(result.token, result.user)
+    applyLoginResult(result)
     return result
   }
 
   function logout() {
     clearSession()
+    // 顺带清掉系统状态快照：换个账号登录时不该看到上一个人的统计数据
+    useSystemStore().reset()
   }
 
   /**
@@ -137,7 +182,10 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated,
     isAdmin,
     displayName,
+    refreshToken,
     setUser,
+    applyLoginResult,
+    refresh,
     login,
     register,
     logout,

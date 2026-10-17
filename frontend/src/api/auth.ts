@@ -21,10 +21,14 @@ export interface AuthUser {
   updatedAt?: string
 }
 
-/** 与后端 com.example.myapp.dto.LoginResponse 对应 */
+/** 与后端 com.example.myapp.dto.LoginResponse 对应（双令牌） */
 export interface LoginResult {
+  /** access token：短有效期，随每个业务请求发送 */
   token: string
+  /** refresh token：长有效期，**只在续期时提交**，不随业务请求发送 */
+  refreshToken: string
   tokenType: string
+  /** access token 的有效期（秒） */
   expiresIn: number
   user: AuthUser
 }
@@ -83,7 +87,29 @@ export function updateProfile(data: ProfilePayload) {
   return request<AuthUser>({ url: '/auth/profile', method: 'put', data })
 }
 
-/** PUT /api/auth/password —— 修改自己的密码，必须提供原密码 */
+/**
+ * PUT /api/auth/password —— 修改自己的密码，必须提供原密码。
+ *
+ * <p>返回**新的令牌对**：改密会把该用户的 token_version +1，
+ * 于是所有旧令牌（包括当前这端手里的）立即失效。不换新令牌的话，
+ * 用户改完密码会立刻被踢回登录页。
+ */
 export function changePassword(data: { oldPassword: string; newPassword: string }) {
-  return request<void>({ url: '/auth/password', method: 'put', data })
+  return request<LoginResult>({ url: '/auth/password', method: 'put', data })
+}
+
+/**
+ * POST /api/auth/refresh —— 用 refresh token 换一对新令牌。
+ *
+ * <p>`skipAuthRefresh` 这个标记会被 http.ts 读到：它表示「这个请求本身就是续期，
+ * 失败时不要再触发续期」，否则会递归调用自己。
+ */
+export function refreshTokens(refreshToken: string) {
+  return request<LoginResult>({
+    url: '/auth/refresh',
+    method: 'post',
+    data: { refreshToken },
+    // 续期请求自己不能再触发续期（否则无限递归）。字段类型见 http.ts 的模块增强
+    skipAuthRefresh: true,
+  })
 }

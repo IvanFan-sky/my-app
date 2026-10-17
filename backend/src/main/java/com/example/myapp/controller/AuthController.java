@@ -7,6 +7,7 @@ import com.example.myapp.dto.LoginForm;
 import com.example.myapp.dto.LoginResponse;
 import com.example.myapp.dto.PasswordForm;
 import com.example.myapp.dto.ProfileForm;
+import com.example.myapp.dto.RefreshForm;
 import com.example.myapp.dto.RegisterForm;
 import com.example.myapp.dto.UserVO;
 import com.example.myapp.security.CurrentUser;
@@ -94,12 +95,26 @@ public class AuthController {
      * <p>原密码不正确返回 4000（不是 4010），避免前端把它当成登录失效而强制登出。
      */
     @PutMapping("/password")
-    public ApiResponse<Void> changePassword(@LoginUser CurrentUser currentUser,
-                                            @Valid @RequestBody PasswordForm form) {
+    public ApiResponse<LoginResponse> changePassword(@LoginUser CurrentUser currentUser,
+                                                     @Valid @RequestBody PasswordForm form) {
         if (currentUser == null) {
             throw new BizException(ErrorCode.UNAUTHORIZED, "请先登录");
         }
-        authService.changePassword(currentUser.id(), form);
-        return ApiResponse.ok();
+        // 返回新的令牌对：改密会作废该用户全部旧令牌（版本号 +1），
+        // 不换新的话当前这端也会被踢下线
+        return ApiResponse.ok(authService.changePassword(currentUser.id(), form));
+    }
+
+    /**
+     * POST /api/auth/refresh —— 用 refresh token 换一对新令牌。
+     *
+     * <p>这个接口必须在白名单里：调用它的时候 access token 往往**已经过期**了，
+     * 如果还要求带有效 access，续期就永远失败。
+     * 安全性由 refresh token 自身保证（类型必须是 refresh、版本号必须匹配、
+     * 用户必须还存在），见 {@code AuthService.refresh}。
+     */
+    @PostMapping("/refresh")
+    public ApiResponse<LoginResponse> refresh(@RequestBody RefreshForm form) {
+        return ApiResponse.ok(authService.refresh(form.getRefreshToken()));
     }
 }

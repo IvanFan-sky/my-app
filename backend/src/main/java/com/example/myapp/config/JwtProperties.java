@@ -19,6 +19,18 @@ import org.springframework.stereotype.Component;
  * 所以这里在回落到开发密钥时打 WARN，并且提供
  * {@link #requireExternalSecret} —— 生产环境把它设为 true，
  * 忘记配密钥就会启动失败，而不是悄悄用公开密钥签发令牌。
+ *
+ * <h2>两种令牌</h2>
+ * <ul>
+ *   <li><b>access</b>（默认 15 分钟）：每个请求都带，有效期必须短 ——
+ *       它一旦泄露，在没有版本号撤销之前就是个定时炸弹。</li>
+ *   <li><b>refresh</b>（默认 7 天）：只在换 access 时用，不出现在业务请求里。
+ *       有效期长是为了免去频繁登录，但**它同样受 token_version 约束**，
+ *       改密码能一次性作废所有设备上的 refresh token。</li>
+ * </ul>
+ *
+ * <p>为什么 access 是 15 分钟而不是原来的 120 分钟：短有效期 + refresh 续期
+ * 是标准组合。access 短意味着泄露窗口小；用户不会因此频繁登录，因为前端会自动续期。
  */
 @Slf4j
 @Data
@@ -29,8 +41,20 @@ public class JwtProperties {
     /** 签名密钥。为空表示未显式配置，由 JwtTokenProvider 回落到开发密钥 */
     private String secret;
 
-    /** 令牌有效期（分钟），默认 120 分钟 */
-    private long expireMinutes = 120;
+    /**
+     * access token 有效期（分钟），默认 15。
+     *
+     * <p>调大的代价：令牌泄露后的危险窗口变长。想「少刷新」应该调大 refresh 而不是它。
+     */
+    private long accessMinutes = 15;
+
+    /**
+     * refresh token 有效期（分钟），默认 7 天（10080）。
+     *
+     * <p>它的作用只是免去重新输密码，**不是**权限凭据 —— 换 access 时仍会校验
+     * token_version 与用户是否存在，所以账号被改动后它会立刻失效。
+     */
+    private long refreshMinutes = 7 * 24 * 60;
 
     /**
      * 是否强制要求密钥由外部（环境变量 / 启动参数）提供。
@@ -47,8 +71,20 @@ public class JwtProperties {
      */
     @PostConstruct
     void check() {
+        if (accessMinutes <= 0 || refreshMinutes <= 0) {
+            throw new IllegalStateException(
+                    "app.jwt.access-minutes 与 app.jwt.refresh-minutes 必须为正数，当前为 "
+                            + accessMinutes + " / " + refreshMinutes);
+        }
+        if (refreshMinutes < accessMinutes) {
+            // refresh 比 access 还短的话，续期机制毫无意义，属于配置写错
+            throw new IllegalStateException(
+                    "app.jwt.refresh-minutes(" + refreshMinutes + ") 不能小于 access-minutes("
+                            + accessMinutes + ")：那样刷新出来的令牌立刻又过期。");
+        }
         if (secret != null && secret.length() >= 32) {
-            log.info("JWT 已使用外部密钥（长度 {}），令牌有效期 {} 分钟", secret.length(), expireMinutes);
+            log.info("JWT 已使用外部密钥（长度 {}），access {} 分钟 / refresh {} 分钟",
+                    secret.length(), accessMinutes, refreshMinutes);
             return;
         }
         if (secret != null && !secret.isBlank()) {

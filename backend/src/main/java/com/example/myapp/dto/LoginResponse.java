@@ -15,8 +15,15 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class LoginResponse {
 
-    /** 访问令牌 */
+    /** 访问令牌（access）：有效期短，随每个业务请求发送 */
     private String token;
+
+    /**
+     * 刷新令牌（refresh）：有效期长，**只在换 access 时提交**，不随业务请求发送。
+     *
+     * <p>它同样受 token_version 约束：改密码会让所有已签发的 refresh 一起失效。
+     */
+    private String refreshToken;
 
     /** 令牌类型，固定 Bearer */
     private String tokenType;
