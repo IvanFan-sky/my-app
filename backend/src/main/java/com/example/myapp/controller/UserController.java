@@ -6,6 +6,7 @@ import com.example.myapp.cache.UserCache;
 import com.example.myapp.common.ApiResponse;
 import com.example.myapp.common.BizException;
 import com.example.myapp.common.AuditAction;
+import com.example.myapp.common.CsvUtils;
 import com.example.myapp.common.ErrorCode;
 import com.example.myapp.common.PageQuery;
 import com.example.myapp.common.UserRole;
@@ -399,27 +400,14 @@ public class UserController {
     private static final int EXPORT_BATCH_SIZE = 500;
 
     /**
-     * CSV 单元格转义。
+     * CSV 单元格转义已抽到 {@link CsvUtils#cell(String)}。
      *
-     * <p>三个必须处理的字符：逗号（列分隔）、双引号（值里的引号要翻倍）、换行。
-     * 不做的话，「a,b」这样的邮箱或昵称会直接把列错位 —— 而错位的表格
-     * 看起来「有数据」，比报错更难发现。
-     *
-     * <p>另外防一下 CSV 注入：以 = + - @ 开头的值会被 Excel 当公式执行，
-     * 前面补一个单引号让它按文本处理。
+     * <p>抽出去的理由是可测：它是纯字符串函数，又是防公式注入的安全逻辑，
+     * 留在 Controller 里只能靠「启 Spring + 发一次导出」间接验证，
+     * 而这类分支（引号翻倍、换行包裹、公式前缀）恰好最需要逐条断言。
      */
     private static String csvCell(String value) {
-        if (value == null) {
-            return "";
-        }
-        String v = value;
-        if (!v.isEmpty() && "=+-@".indexOf(v.charAt(0)) >= 0) {
-            v = "'" + v;
-        }
-        if (v.contains(",") || v.contains("\"") || v.contains("\n") || v.contains("\r")) {
-            return "\"" + v.replace("\"", "\"\"") + "\"";
-        }
-        return v;
+        return CsvUtils.cell(value);
     }
 
     private static String formatTime(java.time.LocalDateTime time) {
