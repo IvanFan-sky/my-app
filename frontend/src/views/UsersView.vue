@@ -340,17 +340,21 @@ async function batchDelete() {
  * 导出当前筛选结果为 CSV。
  *
  * <p>后端直接返回二进制流（带 UTF-8 BOM，Excel 打开中文不乱码），
- * 前端只负责把它落成文件。文件名带时间戳，多次导出不会互相覆盖。
+ * 前端只负责把它落成文件。
+ *
+ * <p>文件名优先用后端 Content-Disposition 里的那个：它由服务端按
+ * `users-yyyyMMdd-HHmmss.csv` 拼好，与 CSV 里的时间列同一个时钟。
+ * 只有读不到响应头时才本地拼一个（用 UTC 时间，仅作兜底）。
  */
 async function exportCsv() {
   exporting.value = true
   try {
-    const blob = await exportUsers(query.keyword || undefined)
+    const { blob, filename } = await exportUsers(query.keyword || undefined)
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
     link.href = url
-    link.download = `users-${stamp}.csv`
+    link.download = filename ?? `users-${stamp}.csv`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)

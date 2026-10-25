@@ -94,6 +94,13 @@ export function batchDeleteUsers(ids: number[]) {
   return request<number>({ url: '/users/batch-delete', method: 'post', data: { ids } })
 }
 
+/** 导出的结果：文件内容 + 文件名 */
+export interface ExportResult {
+  blob: Blob
+  /** 后端 Content-Disposition 里的文件名；读不到时为 null，由调用方兜底 */
+  filename: string | null
+}
+
 /**
  * GET /api/users/export —— 导出 CSV（Blob）。
  *
@@ -105,8 +112,12 @@ export function batchDeleteUsers(ids: number[]) {
  * 于是一个「HTTP 200 + code 5000」的业务错误会被当成正常响应放过。
  * 结果就是浏览器把一段错误 JSON 存成 users-xxx.csv，用户双击打开是乱码，
  * 而且全程没有任何报错提示。
+ *
+ * <p><b>文件名优先取响应头</b>：后端已经按服务端时间拼好了
+ * `users-yyyyMMdd-HHmmss.csv`，前端再自己拼一份等于同一件事写两遍，
+ * 而且两边用的是不同的时钟（前端那次还是 UTC，会出现「文件名比本地时间早 8 小时」）。
  */
-export async function exportUsers(keyword?: string): Promise<Blob> {
+export async function exportUsers(keyword?: string): Promise<ExportResult> {
   const response = await http.get('/users/export', {
     params: { keyword: keyword || undefined },
     responseType: 'blob',
@@ -117,7 +128,20 @@ export async function exportUsers(keyword?: string): Promise<Blob> {
     // 尽力把后端那句可读的 message 捞出来；捞不到就给一句兜底
     throw new Error((await readErrorMessage(blob)) ?? '导出失败，请稍后重试')
   }
-  return blob
+  return { blob, filename: parseFilename(response.headers['content-disposition']) }
+}
+
+/** 从 Content-Disposition 里取 filename；取不到返回 null（交给调用方兜底） */
+function parseFilename(header: unknown): string | null {
+  if (typeof header !== 'string') {
+    return null
+  }
+  const quoted = /filename="([^"]+)"/i.exec(header)
+  if (quoted) {
+    return quoted[1]
+  }
+  const bare = /filename=([^;]+)/i.exec(header)
+  return bare ? bare[1].trim() : null
 }
 
 /** 从错误响应体里取 message。JSON 解析失败（比如返回了 HTML 错误页）时返回 null */

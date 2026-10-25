@@ -28,14 +28,31 @@ describe('exportUsers', () => {
     vi.clearAllMocks()
   })
 
-  it('Content-Type 是 text/csv 时正常返回 Blob', async () => {
+  it('Content-Type 是 text/csv 时返回 Blob，文件名优先取响应头', async () => {
     const blob = fakeBlob('id,username\r\n1,alice', 'text/csv;charset=UTF-8')
     mocks.get.mockResolvedValue({
       data: blob,
+      headers: {
+        'content-type': 'text/csv;charset=UTF-8',
+        'content-disposition': 'attachment; filename="users-20261025-224225.csv"',
+      },
+    })
+
+    const result = await exportUsers('alice')
+    expect(result.blob).toBe(blob)
+    // 后端按服务端时钟拼的文件名，前端不该自己再拼一个（时区会差 8 小时）
+    expect(result.filename).toBe('users-20261025-224225.csv')
+  })
+
+  it('响应头里没有文件名时返回 null，交给调用方兜底', async () => {
+    mocks.get.mockResolvedValue({
+      data: fakeBlob('id\r\n', 'text/csv;charset=UTF-8'),
       headers: { 'content-type': 'text/csv;charset=UTF-8' },
     })
 
-    await expect(exportUsers('alice')).resolves.toBe(blob)
+    const result = await exportUsers()
+    expect(result.blob).toBeDefined()
+    expect(result.filename).toBeNull()
   })
 
   it('后端返回 JSON 错误时抛错，并把后端的 message 透出来', async () => {
