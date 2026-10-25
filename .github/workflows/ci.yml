@@ -158,3 +158,89 @@ jobs:
       - name: 产物体积检查
         working-directory: frontend
         run: pnpm size-check
+
+  # E2E：真实浏览器 + 真实后端。单独一个 job，因为它需要整套基础设施
+  # （MySQL / Redis / JDK / Chromium），跟纯前端的 job 放一起会互相拖慢。
+  # 跑的是独立的 my_app_e2e 库与 8081/3100 端口，与其它 job 完全隔离。
+  e2e:
+    name: E2E（Playwright）
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          # 库名要与 playwright.config.ts 里的 E2E 库一致
+          MYSQL_DATABASE: my_app_e2e
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Playwright 的 webServer 会用 mvn 起后端，所以 JDK 与 Maven 都要有
+      - name: 安装 JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: 安装依赖
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      # --with-deps 会顺带装上 Chromium 需要的系统库（字体、libnss 等），
+      # 缺了会在启动浏览器时报「Host system is missing dependencies」
+      - name: 安装 Chromium
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      # 不需要预先起后端/前端：playwright.config.ts 的 webServer 会自己拉起来
+      - name: 跑 E2E
+        working-directory: frontend
+        env:
+          # 仓库里没有 application-local.yml（已 gitignore），口令必须由环境变量给
+          DB_USERNAME: root
+          DB_PASSWORD: root
+        run: pnpm e2e
+
+      # 失败时才有内容：trace / 截图 / HTML 报告都在这里
+      - name: 上传 E2E 报告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 7
