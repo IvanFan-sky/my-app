@@ -24,6 +24,9 @@ jobs:
   backend:
     name: 后端（编译 + 集成测试）
     runs-on: ubuntu-latest
+    # 集成测试要等 MySQL/Redis 容器就绪，正常 3~5 分钟。
+    # 加超时是为了「卡住」时快速失败，而不是白占 6 小时额度
+    timeout-minutes: 20
 
     services:
       mysql:
@@ -80,9 +83,21 @@ jobs:
           path: backend/target/surefire-reports/
           retention-days: 7
 
+      # 覆盖率报告：mvn test 阶段由 jacoco 生成。
+      # 用 always() 而不是只在失败时上传 —— 覆盖率的价值恰恰在于
+      # 「绿了但某些分支从没被执行过」，只看失败构建是看不到的
+      - name: 上传覆盖率报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-jacoco-report
+          path: backend/target/site/jacoco/
+          retention-days: 7
+
   frontend:
     name: 前端（类型检查 + 构建）
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
@@ -126,3 +141,10 @@ jobs:
       - name: 构建
         working-directory: frontend
         run: pnpm build
+
+      # 产物体积守卫：AGENTS.md 第 5 节记着「manualChunks 按包名通配分配
+      # element-plus 会让体积从 0.71 MB 涨到 1.47 MB，而构建依然成功」。
+      # 那条约定原本只能靠人记，现在由命令守 —— 超阈值直接失败并给出排查方向
+      - name: 产物体积检查
+        working-directory: frontend
+        run: pnpm size-check
