@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.spring.service.IService;
 import com.example.myapp.common.AuditAction;
 import com.example.myapp.dto.AuditLogVO;
 import com.example.myapp.entity.AuditLog;
+import com.example.myapp.security.CurrentUser;
 
 import java.util.Map;
 
@@ -34,6 +35,27 @@ public interface AuditLogService extends IService<AuditLog> {
                 Long actorId, String actorUsername,
                 Long targetId, String targetUsername,
                 Map<String, Object> detail, boolean success);
+
+    /**
+     * 记一条审计日志，操作人取当前登录用户。
+     *
+     * <p><b>「管理员对别人动手」的写操作必须用这个重载</b>，不要手写
+     * {@code record(action, null, null, ...)}：漏传一次，那条历史就只剩对象、
+     * 没有操作人，事后无法回答「谁删了他」—— 而这正是审计存在的理由。
+     *
+     * <p>登录失败等匿名场景仍用上面那个重载：那时可能连用户都不存在，
+     * 强行传 CurrentUser 反而会写出一个错误的主体。
+     *
+     * @param actor 当前登录用户；为 null 时等同于匿名操作
+     */
+    default void record(AuditAction action, CurrentUser actor,
+                        Long targetId, String targetUsername,
+                        Map<String, Object> detail, boolean success) {
+        record(action,
+                actor == null ? null : actor.id(),
+                actor == null ? null : actor.username(),
+                targetId, targetUsername, detail, success);
+    }
 
     /**
      * 分页查询，按时间倒序。

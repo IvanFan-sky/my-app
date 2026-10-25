@@ -104,7 +104,8 @@ public class UserController {
      * 注解表达不了（@NotBlank 会让修改接口留空改密也失败），所以在方法体里显式校验。
      */
     @PostMapping
-    public ApiResponse<UserVO> create(@Valid @RequestBody UserForm form) {
+    public ApiResponse<UserVO> create(@Valid @RequestBody UserForm form,
+                                      @LoginUser CurrentUser currentUser) {
         if (!StringUtils.hasText(form.getPassword())) {
             throw new BizException(ErrorCode.PARAM_INVALID, "新增用户时密码不能为空");
         }
@@ -118,7 +119,9 @@ public class UserController {
         // 依赖「新增不可能命中」这种推理，比无条件失效更容易在改动后失效
         userCache.evict(user.getId());
         User created = userService.getById(user.getId());
-        auditLogService.record(AuditAction.CREATE_USER, null, null,
+        // 操作人必须传当前登录用户：审计要回答的是「谁把谁怎么了」，
+        // 只记 target 会让这条记录在追责时价值减半
+        auditLogService.record(AuditAction.CREATE_USER, currentUser,
                 created.getId(), created.getUsername(),
                 Map.of("role", String.valueOf(created.getRole())), true);
         // 必须重新读一次：createdAt / updatedAt 由数据库的 DEFAULT CURRENT_TIMESTAMP 生成，
@@ -198,7 +201,7 @@ public class UserController {
             // 重置密码：只记「做过」，绝不记值
             changed.put("password", "reset");
         }
-        auditLogService.record(AuditAction.UPDATE_USER, null, null,
+        auditLogService.record(AuditAction.UPDATE_USER, currentUser,
                 updated.getId(), updated.getUsername(), changed, true);
 
         // 同理重新读一次：updated_at 由数据库的 ON UPDATE 维护，
@@ -219,7 +222,7 @@ public class UserController {
         // 这行不能省：不删缓存的话，AuthInterceptor 会从缓存读到「用户还存在」，
         // 已删除用户的旧令牌在有效期内仍能访问接口
         userCache.evict(id);
-        auditLogService.record(AuditAction.DELETE_USER, null, null,
+        auditLogService.record(AuditAction.DELETE_USER, currentUser,
                 id, target == null ? null : target.getUsername(), null, true);
         return ApiResponse.ok();
     }
@@ -258,7 +261,7 @@ public class UserController {
         detail.put("deleted", deleted);
         // 用户名列表截断到 20 个，避免 detail 超长被截断成半截 JSON
         detail.put("usernames", targets.stream().map(User::getUsername).limit(20).toList());
-        auditLogService.record(AuditAction.BATCH_DELETE, null, null, null, null, detail, true);
+        auditLogService.record(AuditAction.BATCH_DELETE, currentUser, null, null, detail, true);
 
         return ApiResponse.ok(deleted);
     }

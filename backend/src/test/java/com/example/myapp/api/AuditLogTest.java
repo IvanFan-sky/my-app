@@ -103,6 +103,20 @@ class AuditLogTest extends ApiTestSupport {
         assertThat(hasAction(logs, "UPDATE_USER")).isTrue();
         assertThat(hasAction(logs, "DELETE_USER")).isTrue();
 
+        /*
+         * 操作人也必须落到日志里。
+         *
+         * 之前这四条写路径都传的是 null，日志只有 target 没有 actor ——
+         * 审计表能回答「谁被删了」，却答不了「谁删的」，等于只有一半价值。
+         * 这条断言守着「不许再手写 null」。
+         */
+        List<Object> userWriteActions = List.of("CREATE_USER", "UPDATE_USER", "DELETE_USER");
+        assertThat(logs.stream()
+                .filter(l -> userWriteActions.contains(l.get("action")))
+                .allMatch(l -> ADMIN_USERNAME.equals(l.get("actorUsername"))))
+                .as("用户管理类操作必须记录操作人，实际=%s", logs)
+                .isTrue();
+
         // 改角色的 detail 里应记下旧→新，这是查越权的关键线索
         String updateDetail = logs.stream()
                 .filter(l -> "UPDATE_USER".equals(l.get("action")))
