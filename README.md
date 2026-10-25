@@ -137,6 +137,9 @@ cd backend
 mvn test          # 集成测试，需要本机 MySQL + Redis 已启动
 ```
 
+测试连的是**独立的 `my_app_test` 库**（由 `src/test/resources/application-test.yml` 指定，
+首次运行自动建库、表结构仍由 Flyway 生成），不会碰开发库 `my_app`。
+
 测试是 `@SpringBootTest` + MockMvc 的**集成**测试，没有把 DB/Redis 换成假的 ——
 要守住的东西（权限边界、缓存失效、空值覆盖、登录锁定）全都发生在框架协作处，
 换成 mock 会全绿但线上照样出事。

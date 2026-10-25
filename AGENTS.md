@@ -95,7 +95,7 @@ Test-NetConnection 127.0.0.1 -Port 6379
 ```powershell
 mvn -q compile                 # 只编译，最快的语法检查
 mvn -DskipTests package        # 打包，跳过测试
-mvn test                       # 跑测试（需要 MySQL + Redis 可用且已建库）
+mvn test                       # 跑测试（需要 MySQL + Redis 可用；测试库 my_app_test 会自动创建）
 mvn spring-boot:run            # 启动服务，默认 8080
 mvn -U ...                     # 强制重新下载依赖（依赖疑似损坏时用）
 ```

@@ -8,6 +8,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
@@ -33,6 +34,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  * <p><b>为什么需要真实 MySQL / Redis</b>：同上。所以 {@code mvn test} 依赖本机
  * 基础设施（见 AGENTS.md）。CI 里由 service 容器提供。
  *
+ * <p><b>为什么用 test profile</b>：默认会激活 application.yml 里的 local profile，
+ * 测试就连到开发库 my_app 上了 —— 测试会真建用户、物理删除、按前缀删审计日志。
+ * {@code application-test.yml} 把目标库换成独立的 my_app_test，
+ * 本机开着应用时跑测试也不会互相污染。
+ *
  * <p><b>测试数据的约定</b>：
  * <ul>
  *   <li>所有造出来的用户名以 {@value #TEST_PREFIX} 开头，清理时按前缀硬删除，
@@ -44,6 +50,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+@ActiveProfiles("test")
 public abstract class ApiTestSupport {
 
     /** 测试数据用户名统一前缀，清理时按它匹配 */

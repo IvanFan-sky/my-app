@@ -1,0 +1,19 @@
+# 测试专用配置：与开发库彻底隔离
+#
+# 为什么需要它：@SpringBootTest 默认会激活 application.yml 里的
+# `spring.profiles.active: local`，于是测试连的就是开发库 my_app ——
+# 测试会真建用户、物理删除、还按前缀删审计日志。本机开着应用时跑测试，
+# 缓存与统计会被污染；哪天清理逻辑写错，误删范围也没有边界兜着。
+#
+# 这里改成独立的 my_app_test：
+#   - createDatabaseIfNotExist=true 让库在第一次跑测试时自动建出来
+#     （Flyway 只负责建表，不负责 CREATE DATABASE）
+#   - 用户名/口令走环境变量，缺省 root/root：本机与 CI 的 service 容器都适用
+#   - 表结构仍由 Flyway 生成，所以测试库里跑的是和真实环境同一套迁移
+#
+# 注意：库名带 _test，不要与 my_app 混用 —— 测试会物理删除数据。
+spring:
+  datasource:
+    url: "jdbc:mysql://127.0.0.1:3306/my_app_test?createDatabaseIfNotExist=true&useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true"
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
