@@ -30,15 +30,29 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     private static final int PASSWORD_MIN_LENGTH = 6;
 
+    /** 概览总数缓存的有效期。见 {@link UserService#countUsersForStats()} 里对取舍的说明 */
+    private static final long COUNT_TTL_MS = 10_000;
+
+    /** 缓存的用户总数；-1 表示还没有值 */
+    private volatile long cachedCount = -1;
+
+    /** 上次计算总数的时间戳（毫秒） */
+    private volatile long cachedCountAt = 0;
+
     private final PasswordEncoder passwordEncoder;
     private final UserCache userCache;
 
     @Override
     public Page<UserVO> pageByKeyword(String keyword, long current, long size) {
+        return pageByKeyword(keyword, current, size, true);
+    }
+
+    @Override
+    public Page<UserVO> pageByKeyword(String keyword, long current, long size, boolean countTotal) {
         // 转义 % 和 _：不转义的话搜一个「%」就等于 LIKE '%%'，全表命中且结果全错
         String kw = StringUtils.hasText(keyword) ? SqlLike.escape(keyword.trim()) : null;
 
-        Page<User> page = page(new Page<>(current, size),
+        Page<User> page = page(new Page<>(current, size, countTotal),
                 Wrappers.<User>lambdaQuery()
                         /*
                          * 用户名或邮箱任一**以关键字开头**即命中。
@@ -85,6 +99,20 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         UserVO vo = UserVO.from(user);
         userCache.put(vo);
         return vo;
+    }
+
+    @Override
+    public long countUsersForStats() {
+        long now = System.currentTimeMillis();
+        // 双检：先读快照，过期再算。并发下可能有几个线程同时重算，
+        // 但结果一样、代价可控，不值得为此加锁
+        if (cachedCount >= 0 && now - cachedCountAt < COUNT_TTL_MS) {
+            return cachedCount;
+        }
+        long total = count();
+        cachedCount = total;
+        cachedCountAt = now;
+        return total;
     }
 
     @Override

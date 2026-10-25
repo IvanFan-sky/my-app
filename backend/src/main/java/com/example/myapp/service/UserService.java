@@ -35,6 +35,28 @@ public interface UserService extends IService<User> {
     Page<UserVO> pageByKeyword(String keyword, long current, long size);
 
     /**
+     * 同上，但可以关掉 count 查询。
+     *
+     * <p>导出是「按批滚动读取」，每批都带一次 {@code COUNT(*)} 纯属浪费，
+     * 而且导出根本不需要总数 —— 它有自己的 5000 行上限。
+     *
+     * @param countTotal false 表示不查总数（{@code Page.getTotal()} 会是 0）
+     */
+    Page<UserVO> pageByKeyword(String keyword, long current, long size, boolean countTotal);
+
+    /**
+     * 用户总数，带 10 秒的进程内缓存。
+     *
+     * <p>只给概览统计用（工作台每次进入都会调）。InnoDB 的 {@code COUNT(*)}
+     * 即使走索引也是一次完整扫描，用户量上来后没必要每次重算。
+     *
+     * <p><b>为什么不做写时失效</b>：失效点分散在新增 / 删除 / 批量删除 / 注册
+     * 四五处，漏一处就会变成「数字永远不更新」；而 10 秒的滞后在一个概览数字上
+     * 几乎察觉不到，且会自愈。两害相权，选滞后。
+     */
+    long countUsersForStats();
+
+    /**
      * 按主键取用户公开信息，**优先读 Redis 缓存**，未命中则回源数据库并回填。
      *
      * @return 用户不存在或已被逻辑删除时返回 null

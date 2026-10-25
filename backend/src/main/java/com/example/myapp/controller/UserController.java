@@ -86,7 +86,8 @@ public class UserController {
     @GetMapping("/stats")
     public ApiResponse<UserStatsVO> stats() {
         UserStatsVO stats = new UserStatsVO(
-                userService.count(),
+                // 走 10 秒缓存：工作台每次进入都会调它，没必要每次 COUNT(*)
+                userService.countUsersForStats(),
                 userCache.hitCount(),
                 userCache.missCount(),
                 userCache.hitRate());
