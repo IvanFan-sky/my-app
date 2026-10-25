@@ -534,8 +534,21 @@ onMounted(loadUsers)
         label-position="top"
         @submit.prevent="submitForm"
       >
+        <!--
+          用户名在编辑态**必须禁用**。
+          后端 UserController.update 只写 nickname/email/bio/age/password，
+          从不写 username —— 允许编辑会变成「改了、提示修改成功、刷新后没变」
+          的静默失败。真要支持改名是独立需求（唯一索引冲突、令牌里的 sub、
+          审计记录都要处理），不是放开一个输入框就能完成的事。
+        -->
         <el-form-item label="用户名" prop="username">
-          <el-input v-model="form.username" placeholder="请输入用户名" clearable />
+          <el-input
+            v-model="form.username"
+            placeholder="请输入用户名"
+            clearable
+            :disabled="isEdit"
+          />
+          <div v-if="isEdit" class="field-hint">用户名是登录标识，创建后不可修改</div>
         </el-form-item>
         <el-form-item label="显示名" prop="nickname">
           <el-input v-model="form.nickname" placeholder="选填，留空则显示用户名" clearable />
