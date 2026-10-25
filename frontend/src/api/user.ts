@@ -99,11 +99,33 @@ export function batchDeleteUsers(ids: number[]) {
  *
  * <p>用 responseType: 'blob' 拿原始二进制，而不是走 request<T>()：
  * 那个函数会去剥 `{code,message,data}` 外壳，而 CSV 响应体根本不是 JSON。
+ *
+ * <p><b>必须自己校验 Content-Type</b>：blob 模式下 http 层的成功拦截器
+ * 判断 `typeof body.code === 'number'` 恒为 false（Blob 上没有 code），
+ * 于是一个「HTTP 200 + code 5000」的业务错误会被当成正常响应放过。
+ * 结果就是浏览器把一段错误 JSON 存成 users-xxx.csv，用户双击打开是乱码，
+ * 而且全程没有任何报错提示。
  */
 export async function exportUsers(keyword?: string): Promise<Blob> {
   const response = await http.get('/users/export', {
     params: { keyword: keyword || undefined },
     responseType: 'blob',
   })
-  return response.data as Blob
+  const blob = response.data as Blob
+  const contentType = String(response.headers['content-type'] ?? blob.type ?? '')
+  if (!contentType.includes('text/csv')) {
+    // 尽力把后端那句可读的 message 捞出来；捞不到就给一句兜底
+    throw new Error((await readErrorMessage(blob)) ?? '导出失败，请稍后重试')
+  }
+  return blob
+}
+
+/** 从错误响应体里取 message。JSON 解析失败（比如返回了 HTML 错误页）时返回 null */
+async function readErrorMessage(blob: Blob): Promise<string | null> {
+  try {
+    const body = JSON.parse(await blob.text()) as { message?: string }
+    return body.message ?? null
+  } catch {
+    return null
+  }
 }
