@@ -173,6 +173,10 @@ class UserCrudTest extends ApiTestSupport {
         Integer deleted = jdbcTemplate.queryForObject(
                 "SELECT deleted FROM sys_user WHERE username = ?", Integer.class, username);
         assertThat(deleted).isEqualTo(1);
+
+        // 重复删除必须报 404：静默返回「成功」会让并发删除的后者
+        // 以为是自己删的，也掩盖前端传错 id
+        assertStatus(deleteJson("/api/users/" + id, token), 200, 4004);
     }
 
     @Test

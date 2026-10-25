@@ -241,6 +241,15 @@ public class UserController {
             throw new BizException(ErrorCode.PARAM_INVALID, "不能删除自己的账号");
         }
         User target = userService.getById(id);
+        if (target == null) {
+            /*
+             * 不存在（或已被别人删掉）时返回 404，而不是「删除成功」。
+             *
+             * 静默成功有两个害处：并发删除时后者会以为是自己删的；
+             * 前端传错 id 也永远不会被发现。审计里的 targetUsername 也会是 null。
+             */
+            throw new BizException(ErrorCode.NOT_FOUND, "用户不存在: " + id);
+        }
         userService.removeById(id);
         // 这行不能省：不删缓存的话，AuthInterceptor 会从缓存读到「用户还存在」，
         // 已删除用户的旧令牌在有效期内仍能访问接口
