@@ -5,6 +5,7 @@ import com.example.myapp.common.UserRole;
 import com.example.myapp.support.ApiTestSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.web.servlet.MvcResult;
 
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
@@ -12,7 +13,9 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 
 /**
  * 审计日志：写入点是否真的记了、谁能查、批量删除与导出的行为。
@@ -203,10 +206,18 @@ class AuditLogTest extends ApiTestSupport {
         String username = newUsername();
         createUser(username, TEST_PASSWORD, UserRole.USER);
 
-        var response = mockMvc.perform(get("/api/users/export")
+        /*
+         * export 返回 StreamingResponseBody，走的是 Servlet 异步处理：
+         * 第一次 perform 只是「启动了异步」，正文还没写完。
+         * 必须等 asyncStarted 再 asyncDispatch，才能拿到真正的响应体。
+         */
+        MvcResult pending = mockMvc.perform(get("/api/users/export")
                         .param("keyword", username)
                         .header("Authorization", "Bearer " + token))
-                .andReturn().getResponse();
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        var response = mockMvc.perform(asyncDispatch(pending)).andReturn().getResponse();
 
         assertThat(response.getStatus()).isEqualTo(200);
         assertThat(response.getContentType()).startsWith("text/csv");

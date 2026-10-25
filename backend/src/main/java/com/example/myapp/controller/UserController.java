@@ -20,10 +20,12 @@ import com.example.myapp.security.RequireRole;
 import com.example.myapp.service.AuditLogService;
 import com.example.myapp.service.UserService;
 import jakarta.validation.Valid;
-import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,8 +36,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
-import java.io.IOException;
+import java.io.BufferedWriter;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -316,45 +321,82 @@ public class UserController {
      *
      * <p>上限 5000 行：再大就不该用同步导出（应该走异步任务 + 下载链接），
      * 否则一次导出可能把数据库连接和内存占住。超出时静默截断而不是报错 ——
-     * 对使用者来说「拿到前 5000 条」比「什么都没有」有用；文件名里会带行数以便发现。
+     * 对使用者来说「拿到前 5000 条」比「什么都没有」有用。
+     *
+     * <p><b>为什么用 {@link StreamingResponseBody} 而不是直接 getWriter()</b>：
+     * 前者是「分批查一批、写一批」，内存峰值只有一批（{@value #EXPORT_BATCH_SIZE} 条）：
+     * 后者要先把 5000 行全部读进 List，峰值是 5000 个 UserVO。
+     * 两个必须知道的限制：
+     * <ul>
+     *   <li>流式响应在独立线程执行，**中途抛异常无法再转成 JSON 错误体**
+     *       （响应已提交），客户端只会拿到一个截断的文件。所以只把
+     *       「查询 + 写行」放进流里，其余逻辑（文件名、响应头）都在外面，
+     *       参数错误仍能正常返回。</li>
+     *   <li>每批查询都关掉 count（{@code countTotal=false}）：导出不需要总数，
+     *       否则 10 批就是 10 次 {@code COUNT(*)}。</li>
+     * </ul>
      */
     @GetMapping("/export")
-    public void export(@RequestParam(required = false) String keyword,
-                       HttpServletResponse response) throws IOException {
-        // 复用与列表完全相同的查询：导出的结果必须和界面上看到的筛选结果一致
-        List<UserVO> rows = userService.pageByKeyword(keyword, 1, EXPORT_MAX_ROWS).getRecords();
+    public ResponseEntity<StreamingResponseBody> export(
+            @RequestParam(required = false) String keyword) {
 
         String filename = "users-" + LocalDateTime.now()
                 .format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")) + ".csv";
-        response.setContentType("text/csv;charset=UTF-8");
-        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        response.setHeader("Content-Disposition",
-                "attachment; filename=\"" + filename + "\"");
-        // 告诉浏览器这是个下载，且不要让中间层按 JSON 处理
-        response.setHeader("X-Content-Type-Options", "nosniff");
 
-        var writer = response.getWriter();
-        // UTF-8 BOM：Excel 靠它识别编码，否则中文会显示成乱码
-        writer.write('\uFEFF');
+        StreamingResponseBody body = out -> {
+            Writer writer = new BufferedWriter(
+                    new OutputStreamWriter(out, StandardCharsets.UTF_8));
+            // UTF-8 BOM：Excel 靠它识别编码，否则中文会显示成乱码
+            writer.write('\uFEFF');
+            writer.write("ID,用户名,显示名,角色,邮箱,年龄,创建时间,更新时间\r\n");
 
-        writer.write("ID,用户名,显示名,角色,邮箱,年龄,创建时间,更新时间\r\n");
-        for (UserVO row : rows) {
-            writer.write(String.join(",",
-                    csvCell(row.getId() == null ? null : String.valueOf(row.getId())),
-                    csvCell(row.getUsername()),
-                    csvCell(row.getNickname()),
-                    csvCell(row.getRole()),
-                    csvCell(row.getEmail()),
-                    csvCell(row.getAge() == null ? null : String.valueOf(row.getAge())),
-                    csvCell(formatTime(row.getCreatedAt())),
-                    csvCell(formatTime(row.getUpdatedAt()))));
-            writer.write("\r\n");
-        }
-        writer.flush();
+            int written = 0;
+            long page = 1;
+            while (written < EXPORT_MAX_ROWS) {
+                int batch = Math.min(EXPORT_BATCH_SIZE, EXPORT_MAX_ROWS - written);
+                // 复用与列表相同的查询：导出的结果必须和界面上看到的一致
+                List<UserVO> rows = userService
+                        .pageByKeyword(keyword, page, batch, false)
+                        .getRecords();
+                if (rows.isEmpty()) {
+                    break;
+                }
+                for (UserVO row : rows) {
+                    writer.write(String.join(",",
+                            csvCell(row.getId() == null ? null : String.valueOf(row.getId())),
+                            csvCell(row.getUsername()),
+                            csvCell(row.getNickname()),
+                            csvCell(row.getRole()),
+                            csvCell(row.getEmail()),
+                            csvCell(row.getAge() == null ? null : String.valueOf(row.getAge())),
+                            csvCell(formatTime(row.getCreatedAt())),
+                            csvCell(formatTime(row.getUpdatedAt()))));
+                    writer.write("\r\n");
+                }
+                written += rows.size();
+                page++;
+                // 这一批没取满，说明已经到底了，不用再查一次空页
+                if (rows.size() < batch) {
+                    break;
+                }
+            }
+            writer.flush();
+        };
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("text/csv;charset=UTF-8"))
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + filename + "\"")
+                // 告诉浏览器这是个下载，且不要让中间层按 JSON 处理
+                .header("X-Content-Type-Options", "nosniff")
+                .body(body);
     }
 
     /** 导出上限。见 export 方法里的说明 */
     private static final int EXPORT_MAX_ROWS = 5000;
+
+    /** 每批读取行数：决定流式导出的内存峰值 */
+    private static final int EXPORT_BATCH_SIZE = 500;
 
     /**
      * CSV 单元格转义。
