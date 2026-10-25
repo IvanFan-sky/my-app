@@ -141,6 +141,12 @@ jobs:
         working-directory: frontend
         run: pnpm type-check
 
+      # 纯逻辑单测：401 单飞续期、会话恢复、导出类型校验。
+      # 这几处改错不会让构建失败，只会让「刷新页面掉登录」这类问题偶发
+      - name: 单元测试
+        working-directory: frontend
+        run: pnpm test
+
       - name: 构建
         working-directory: frontend
         run: pnpm build
