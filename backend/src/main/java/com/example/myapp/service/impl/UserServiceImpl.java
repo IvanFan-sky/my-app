@@ -8,6 +8,7 @@ import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.example.myapp.cache.UserCache;
 import com.example.myapp.common.BizException;
 import com.example.myapp.common.ErrorCode;
+import com.example.myapp.common.SqlLike;
 import com.example.myapp.dto.UserVO;
 import com.example.myapp.entity.User;
 import com.example.myapp.mapper.UserMapper;
@@ -34,7 +35,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Override
     public Page<UserVO> pageByKeyword(String keyword, long current, long size) {
-        String kw = StringUtils.hasText(keyword) ? keyword.trim() : null;
+        // 转义 % 和 _：不转义的话搜一个「%」就等于 LIKE '%%'，全表命中且结果全错
+        String kw = StringUtils.hasText(keyword) ? SqlLike.escape(keyword.trim()) : null;
 
         Page<User> page = page(new Page<>(current, size),
                 Wrappers.<User>lambdaQuery()

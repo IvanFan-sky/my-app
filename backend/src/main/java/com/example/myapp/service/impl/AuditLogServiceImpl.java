@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.example.myapp.common.AuditAction;
+import com.example.myapp.common.SqlLike;
 import com.example.myapp.dto.AuditLogVO;
 import com.example.myapp.entity.AuditLog;
 import com.example.myapp.mapper.AuditLogMapper;
@@ -58,7 +59,7 @@ public class AuditLogServiceImpl extends ServiceImpl<AuditLogMapper, AuditLog>
 
     @Override
     public Page<AuditLogVO> pageLogs(String keyword, String action, long current, long size) {
-        String kw = StringUtils.hasText(keyword) ? keyword.trim() : null;
+        String kw = StringUtils.hasText(keyword) ? SqlLike.escape(keyword.trim()) : null;
         String act = StringUtils.hasText(action) ? action.trim() : null;
 
         Page<AuditLog> page = page(new Page<>(current, size),

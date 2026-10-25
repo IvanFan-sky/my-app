@@ -89,6 +89,27 @@ class UserCrudTest extends ApiTestSupport {
     }
 
     @Test
+    @DisplayName("搜索里的 LIKE 通配符被转义，% 与 _ 不再匹配全表")
+    void keywordWildcardsAreEscaped() throws Exception {
+        String token = adminToken();
+        createUser(newUsername(), TEST_PASSWORD, UserRole.USER);
+
+        /*
+         * 不转义时这两个关键字会退化：
+         *   %  → LIKE '%%'   匹配全部
+         *   _  → LIKE '_%'   匹配「任意一个字符开头」，实质也是全部
+         * 转义后它们是字面量，而库里没有以 % 或 _ 开头的用户名，所以 total 必须是 0。
+         */
+        for (String wildcard : new String[]{"%25", "_"}) {
+            var actions = getJson("/api/users?keyword=" + wildcard + "&current=1&size=100", token);
+            assertStatus(actions, 200, 0);
+            assertThat(jsonString(actions, "/data/total"))
+                    .as("关键字 %s 应被当作字面量，不能匹配任何用户", wildcard)
+                    .isEqualTo("0");
+        }
+    }
+
+    @Test
     @DisplayName("分页与关键字搜索：用户名、邮箱都能命中")
     void pagingAndKeywordSearch() throws Exception {
         String token = adminToken();
