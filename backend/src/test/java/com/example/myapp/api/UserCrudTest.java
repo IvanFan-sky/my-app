@@ -1,5 +1,6 @@
 package com.example.myapp.api;
 
+import com.example.myapp.common.ErrorCode;
 import com.example.myapp.common.UserRole;
 import com.example.myapp.support.ApiTestSupport;
 import org.junit.jupiter.api.DisplayName;
@@ -45,6 +46,32 @@ class UserCrudTest extends ApiTestSupport {
                 .isEqualTo(UserRole.USER);
         // createdAt 由数据库生成，写完后必须回读才能拿到（曾经返回 null 过）
         assertThat(jsonString(created, "/data/createdAt")).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("新增用户撞用户名返回 4009（含已被逻辑删除的同名用户）")
+    void createDuplicateUsernameIsConflict() throws Exception {
+        String token = adminToken();
+        String username = newUsername();
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("username", username);
+        body.put("password", TEST_PASSWORD);
+
+        assertStatus(postJson("/api/users", token, body), 200, 0);
+
+        // 第一种：同名用户还在库里
+        assertStatus(postJson("/api/users", token, body), 200, ErrorCode.CONFLICT);
+
+        /*
+         * 第二种更隐蔽：同名用户已被逻辑删除。
+         *
+         * @TableLogic 让查询自动带上 deleted = 0，所以「先查一次有没有」查不到它，
+         * 但 uk_sys_user_username 仍然被占用 —— 只有捕获 DuplicateKeyException
+         * 才能兜住。漏了这层，管理员看到的是 5000「服务器内部错误」。
+         */
+        jdbcTemplate.update("UPDATE sys_user SET deleted = 1 WHERE username = ?", username);
+        assertStatus(postJson("/api/users", token, body), 200, ErrorCode.CONFLICT);
     }
 
     @Test

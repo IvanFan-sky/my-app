@@ -21,6 +21,8 @@ import com.example.myapp.service.UserService;
 import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -51,6 +53,7 @@ import java.util.Map;
  * 都必须调 {@code userCache.evict(id)}。漏掉的后果不是「数据有点旧」，而是
  * {@code AuthInterceptor} 会从缓存里读到已删除的用户、继续放行其旧令牌 —— 那是权限漏洞。
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/users")
 @RequiredArgsConstructor
@@ -114,7 +117,23 @@ public class UserController {
         // 新增时按传入角色，未传则用最小权限的默认角色（USER）
         user.setRole(parseRole(form.getRole(), UserRole.DEFAULT_ROLE));
         userService.assignPassword(user, form.getPassword());
-        userService.save(user);
+        try {
+            userService.save(user);
+        } catch (DuplicateKeyException e) {
+            /*
+             * 用户名唯一键冲突。
+             *
+             * 这里**不能只靠事先查重**（本方法也没有查重）：@TableLogic 让查询自动
+             * 带上 deleted = 0，于是「已被逻辑删除的同名用户」查不出来，却仍然占着
+             * uk_sys_user_username —— 只有唯一索引能兜住。
+             *
+             * 不捕获的话异常会落到 GlobalExceptionHandler 的兜底分支变成 5000
+             * 「服务器内部错误」，管理员会去翻服务端日志找问题，而其实只要换个用户名。
+             * 与 AuthServiceImpl.register 的处理保持一致。
+             */
+            log.info("新增用户失败：用户名唯一键冲突 username={}", form.getUsername());
+            throw new BizException(ErrorCode.CONFLICT, "用户名已被占用，请换一个");
+        }
         // 新增时这个 id 还不可能有缓存，但仍统一失效一次：
         // 依赖「新增不可能命中」这种推理，比无条件失效更容易在改动后失效
         userCache.evict(user.getId());
