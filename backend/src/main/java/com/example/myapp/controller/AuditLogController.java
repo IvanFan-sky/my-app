@@ -3,6 +3,7 @@ package com.example.myapp.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.myapp.common.ApiResponse;
 import com.example.myapp.common.AuditAction;
+import com.example.myapp.common.PageQuery;
 import com.example.myapp.common.UserRole;
 import com.example.myapp.dto.AuditLogVO;
 import com.example.myapp.security.RequireRole;
@@ -42,7 +43,10 @@ public class AuditLogController {
             @RequestParam(required = false) String action,
             @RequestParam(defaultValue = "1") long current,
             @RequestParam(defaultValue = "20") long size) {
-        return ApiResponse.ok(auditLogService.pageLogs(keyword, action, current, size));
+        // 与用户列表同一套上下限：审计日志的体量只会比用户表更大
+        PageQuery pageQuery = PageQuery.of(current, size);
+        return ApiResponse.ok(
+                auditLogService.pageLogs(keyword, action, pageQuery.current(), pageQuery.size()));
     }
 
     /**

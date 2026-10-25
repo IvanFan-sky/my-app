@@ -7,6 +7,7 @@ import com.example.myapp.common.ApiResponse;
 import com.example.myapp.common.BizException;
 import com.example.myapp.common.AuditAction;
 import com.example.myapp.common.ErrorCode;
+import com.example.myapp.common.PageQuery;
 import com.example.myapp.common.UserRole;
 import com.example.myapp.dto.UserBatchForm;
 import com.example.myapp.dto.UserForm;
@@ -71,7 +72,10 @@ public class UserController {
     public ApiResponse<Page<UserVO>> page(@RequestParam(required = false) String keyword,
                                          @RequestParam(defaultValue = "1") long current,
                                          @RequestParam(defaultValue = "10") long size) {
-        return ApiResponse.ok(userService.pageByKeyword(keyword, current, size));
+        // 收敛成 1~100：size 直接来自请求参数，不限制就等于开放全表扫描
+        PageQuery pageQuery = PageQuery.of(current, size);
+        return ApiResponse.ok(
+                userService.pageByKeyword(keyword, pageQuery.current(), pageQuery.size()));
     }
 
     /**

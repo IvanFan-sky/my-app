@@ -75,6 +75,20 @@ class UserCrudTest extends ApiTestSupport {
     }
 
     @Test
+    @DisplayName("分页参数越界返回 4000，边界值 100 可以通过")
+    void pagingRejectsOversizedPage() throws Exception {
+        String token = adminToken();
+
+        // size 不做限制的话，一条请求就能全表扫描 + 全量序列化
+        assertStatus(getJson("/api/users?size=100000", token), 200, ErrorCode.PARAM_INVALID);
+        assertStatus(getJson("/api/users?size=0", token), 200, ErrorCode.PARAM_INVALID);
+        assertStatus(getJson("/api/users?current=0", token), 200, ErrorCode.PARAM_INVALID);
+
+        // 上限本身是合法值，不能被误杀
+        assertStatus(getJson("/api/users?size=100", token), 200, 0);
+    }
+
+    @Test
     @DisplayName("分页与关键字搜索：用户名、邮箱都能命中")
     void pagingAndKeywordSearch() throws Exception {
         String token = adminToken();
