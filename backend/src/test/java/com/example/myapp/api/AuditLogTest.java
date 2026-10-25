@@ -149,6 +149,31 @@ class AuditLogTest extends ApiTestSupport {
     }
 
     @Test
+    @DisplayName("动作清单由后端枚举生成，前端不维护映射表")
+    void actionsComeFromEnum() throws Exception {
+        var actions = getJson("/api/audit-logs/actions", adminToken());
+        assertStatus(actions, 200, 0);
+
+        String body = actions.andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        var data = objectMapper.readTree(body).get("data");
+        assertThat(data.isArray()).isTrue();
+
+        /*
+         * 条数必须等于枚举值个数：这个接口存在的意义就是「后端加了动作，
+         * 前端下拉自动就有」。若有人改成手写数组，条数立刻对不上。
+         */
+        assertThat(data.size())
+                .as("动作清单应与 AuditAction 枚举一致")
+                .isEqualTo(com.example.myapp.common.AuditAction.values().length);
+
+        // 每项都要有 value 与非空 label，否则前端下拉会出现空白选项
+        data.forEach(node -> {
+            assertThat(node.get("value").asText()).isNotBlank();
+            assertThat(node.get("label").asText()).isNotBlank();
+        });
+    }
+
+    @Test
     @DisplayName("普通用户查不到审计日志（403/4030）")
     void normalUserCannotReadAuditLogs() throws Exception {
         String username = newUsername();
