@@ -69,20 +69,41 @@ async function loadRecent() {
   }
 }
 
-async function refreshAll() {
+async function refreshAll(force = false) {
   // 统计与健康状态由 store 统一拉取（内部并发），最近用户单独拉：
   // 前者两页共享、后者只有这一页用，没必要进共享缓存
-  await Promise.all([system.load(true), loadRecent()])
+  await Promise.all([system.load(force), loadRecent()])
 }
 
-onMounted(refreshAll)
+/**
+ * 顶部「刷新」按钮：忽略 30 秒缓存，强制重新探测。
+ *
+ * <p>刻意单独包一层，而不是把 `refreshAll` 直接挂在 @click 上 ——
+ * 那样 Vue 会把 MouseEvent 当成第一个参数传进来，`force` 变成真值，
+ * 行为看起来对、理由却是错的。
+ */
+function refreshNow() {
+  void refreshAll(true)
+}
+
+onMounted(() => {
+  /*
+   * 进入页面时**走缓存**（force=false）。
+   *
+   * system store 存在的理由就是「工作台和系统设置共享同一份快照」，
+   * 原来这里传 true，导致每次进工作台都重新请求一遍，设置页却读缓存 ——
+   * 30 秒窗口内两个页面的数据反而不一致，正好把这个设计架空。
+   * 只有用户手点刷新才该穿透缓存。
+   */
+  void refreshAll()
+})
 </script>
 
 <template>
   <div class="dashboard">
     <PageHeader title="工作台" description="一眼看到当前系统状态与最近变化">
       <template #actions>
-        <el-button :loading="loadingRecent" @click="refreshAll">
+        <el-button :loading="loadingRecent" @click="refreshNow">
           <AppIcon name="refresh" :size="15" />
           <span class="btn-text">刷新</span>
         </el-button>
