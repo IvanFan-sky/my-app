@@ -170,6 +170,33 @@
                 </configuration>
             </plugin>
 
+            <!-- 覆盖率统计。
+                 解决的是「说不清哪些代码从没被执行过」：健康检查的 DOWN 分支、
+                 Redis fail-open 分支这类「只在故障时走到」的代码，光看测试名
+                 看不出来，只有覆盖率报告会标红。
+                 0.8.12 是支持 JDK 21/22 字节码的版本线，与 Spring Boot 3.5 兼容。
+                 report 绑在 test 阶段：CI 只跑 mvn test 也能出报告，不需要额外的 verify。 -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
         </plugins>
     </build>
 </project>
