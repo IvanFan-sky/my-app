@@ -33,8 +33,10 @@ jobs:
         image: mysql:8.4
         env:
           MYSQL_ROOT_PASSWORD: root
-          # 库必须预先存在：Flyway 负责建表，但不负责 CREATE DATABASE
-          MYSQL_DATABASE: my_app
+          # 库名要与 application-test.yml 里的测试库一致（my_app_test）。
+          # Flyway 负责建表，但不负责 CREATE DATABASE —— 这里预建，
+          # 不依赖 JDBC 的 createDatabaseIfNotExist（那条只在本地直连时生效）
+          MYSQL_DATABASE: my_app_test
         ports:
           - 3306:3306
         options: >-
@@ -66,9 +68,10 @@ jobs:
       - name: 跑测试（Flyway 会自动建表）
         working-directory: backend
         env:
-          # 覆盖 application.yml 里的默认值。application-local.yml 是 gitignore 的，
-          # CI 里不存在，所以数据库口令必须由环境变量提供（见 AGENTS.md 第 10 节）。
-          SPRING_DATASOURCE_URL: jdbc:mysql://127.0.0.1:3306/my_app?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+          # 注意优先级：环境变量 > application-test.yml。
+          # 这里必须指到与本地一致的测试库 my_app_test，否则 CI 跑的是一套库、
+          # 本地跑的是另一套 —— 「本地绿 CI 红」会变得难解释。
+          SPRING_DATASOURCE_URL: jdbc:mysql://127.0.0.1:3306/my_app_test?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
           DB_USERNAME: root
           DB_PASSWORD: root
           # 用随机开发密钥跑测试：不要在任何持久化环境复用固定密钥
