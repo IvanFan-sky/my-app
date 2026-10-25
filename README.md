@@ -152,10 +152,30 @@ CI 每次也会作为 artifact 上传。
 换成 mock 会全绿但线上照样出事。
 
 覆盖范围：认证流程、权限边界（含提权尝试与管理员自我保护）、个人中心、
-登录失败锁定、CRUD / 分页搜索 / 缓存命中。
+登录失败锁定、CRUD / 分页搜索 / 缓存命中、并发抢注 / 版本号自增。
 
-CI 见 `.github/workflows/ci.yml`：push 与 PR 时自动跑后端测试（带 MySQL、Redis 服务容器）
-以及前端 `type-check` + `build`。
+### E2E（Playwright）
+
+```powershell
+cd frontend
+pnpm e2e           # 真实浏览器跑：登录、权限入口、注册改密、导出 CSV
+pnpm e2e:report    # 打开上一次的 HTML 报告
+```
+
+E2E 会自己拉起**独立的**一整套环境，不需要先启动前后端，也不会碰开发环境的
+数据和端口：
+
+| 项 | 开发环境 | E2E |
+|---|---|---|
+| 后端 | 8080 | **8081** |
+| 前端 | 3000 | **3100** |
+| 数据库 | `my_app` | **`my_app_e2e`** |
+
+首次运行需装浏览器：`pnpm exec playwright install chromium`（约 118 MB；
+国内网络可加 `PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright`）。
+
+CI 见 `.github/workflows/ci.yml`：push 与 PR 时自动跑后端测试（带 MySQL、Redis 服务容器）、
+前端 `lint` + `format:check` + `type-check` + `test` + `build` + 体积检查，以及 E2E。
 
 ---
 ## 接口一览

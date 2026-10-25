@@ -104,12 +104,16 @@ export default defineConfig({
     // 刻意不用 Vite 默认的 5173：本机 Hyper-V 预留了 4990–5188 端口段
     // （netsh interface ipv4 show excludedportrange protocol tcp 可查），
     // 5173/5174 都在其中，绑定必然报 EACCES。3000 实测可用。
-    port: 3000,
+    //
+    // 端口与代理目标允许用环境变量覆盖，给 E2E 用：Playwright 会起一套
+    // 「E2E 专用后端 + 独立前端」，如果固定 3000/8080，就必须先关掉正在
+    // 开发的那两个进程才能跑测试 —— 那没人会愿意跑。
+    port: Number(process.env.VITE_PORT) || 3000,
     // 代理：前端写 /api/xxx，由 Vite 转发到后端 8080。
     // 这样浏览器里是同源请求，开发期不需要处理 CORS。
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8080',
+        target: process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8080',
         changeOrigin: true,
       },
     },

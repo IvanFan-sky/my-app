@@ -34,6 +34,7 @@
 | 代码检查 | ESLint | 10.x（flat config）+ eslint-plugin-vue 10.x |
 | 代码格式化 | Prettier | 3.x（配置见 `frontend/.prettierrc.json`） |
 | 前端单元测试 | Vitest | 3.2.x（jsdom 环境，配置见 `frontend/vitest.config.ts`） |
+| 端到端测试 | Playwright | 1.64.x（Chromium，配置见 `frontend/playwright.config.ts`） |
 | 包管理 | pnpm | 10.x |
 | JWT | jjwt | 0.12.5（`jjwt-api` compile + `jjwt-impl` / `jjwt-jackson` runtime） |
 | 密码哈希 | spring-security-crypto | 由 Boot BOM 管理（6.5.x），**只引这一个模块** |
@@ -114,6 +115,7 @@ pnpm format:check              # 只检查不修改（CI 用这个）
 pnpm type-check                # vue-tsc 类型检查（不产出文件）
 pnpm test                      # Vitest 单元测试（拦截器 / store / api 封装），一次性跑完
 pnpm test:watch                # 同上，watch 模式，改代码自动重跑
+pnpm e2e                       # Playwright E2E，会自己起独立后端(8081)+前端(3100)+my_app_e2e 库
 pnpm build                     # 类型检查 + 生产构建
 pnpm preview                   # 预览构建产物
 ```
@@ -726,6 +728,7 @@ username 有唯一索引，两边都能用上索引。
 | 后端 pom.xml / 依赖 | `mvn -DskipTests package`（依赖解析问题只有打包才会暴露） |
 | 前端 TS / Vue | `cd frontend; pnpm type-check` |
 | 前端逻辑（拦截器 / store / api 封装） | `cd frontend; pnpm test` |
+| 页面流程（登录 / 改密 / 导出 / 权限入口） | `cd frontend; pnpm e2e`（首次先 `pnpm exec playwright install chromium`） |
 | 前端任何改动 | `cd frontend; pnpm lint` 与 `pnpm format:check`（CI 会跑，本地先跑省一轮） |
 | 前端构建配置（vite.config） | `pnpm build` 并**核对产物体积**，见第 5 节的按需引入约定 |
 | 数据库结构（`db/migration/V*.sql`） | 起一次应用看 `flyway_schema_history`；空库与已有库两种场景都要过 |

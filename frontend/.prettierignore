@@ -6,6 +6,11 @@ coverage
 pnpm-lock.yaml
 public
 
+# E2E 产物（Playwright 生成的报告与失败现场，不是我们的代码）
+test-results
+playwright-report
+blob-report
+
 # 工具自动生成的文件
 src/auto-imports.d.ts
 src/components.d.ts

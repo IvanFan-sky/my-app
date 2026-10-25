@@ -17,6 +17,12 @@ dist-ssr/
 .eslintcache
 coverage/
 
+# ---- E2E（Playwright）----
+# 报告与失败现场（trace / 截图 / 视频）都是产物，不该进版本库
+playwright-report/
+test-results/
+blob-report/
+
 # ---- IDE ----
 .idea/
 *.iml
