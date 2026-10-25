@@ -117,6 +117,8 @@ cd frontend
 pnpm lint          # ESLint：未用变量、Vue API 误用、模板写法
 pnpm format:check  # Prettier：格式是否统一
 pnpm type-check    # vue-tsc：类型
+pnpm test          # Vitest：拦截器 / store / api 封装的单元测试
+pnpm size-check    # 产物体积守卫（需先 build）
 pnpm build         # 类型检查 + 生产构建
 ```
 

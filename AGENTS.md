@@ -33,6 +33,7 @@
 | HTTP | axios | 1.20.x |
 | 代码检查 | ESLint | 10.x（flat config）+ eslint-plugin-vue 10.x |
 | 代码格式化 | Prettier | 3.x（配置见 `frontend/.prettierrc.json`） |
+| 前端单元测试 | Vitest | 3.2.x（jsdom 环境，配置见 `frontend/vitest.config.ts`） |
 | 包管理 | pnpm | 10.x |
 | JWT | jjwt | 0.12.5（`jjwt-api` compile + `jjwt-impl` / `jjwt-jackson` runtime） |
 | 密码哈希 | spring-security-crypto | 由 Boot BOM 管理（6.5.x），**只引这一个模块** |
@@ -110,6 +111,8 @@ pnpm lint:fix                  # 自动修可修的问题
 pnpm format                    # Prettier 格式化
 pnpm format:check              # 只检查不修改（CI 用这个）
 pnpm type-check                # vue-tsc 类型检查（不产出文件）
+pnpm test                      # Vitest 单元测试（拦截器 / store / api 封装），一次性跑完
+pnpm test:watch                # 同上，watch 模式，改代码自动重跑
 pnpm build                     # 类型检查 + 生产构建
 pnpm preview                   # 预览构建产物
 ```
@@ -117,6 +120,10 @@ pnpm preview                   # 预览构建产物
 三个工具分工别搞混：**ESLint 管「对不对」**（未用变量、Vue API 误用、模板写法），
 **Prettier 管「好不好看」**（缩进/引号/换行），**vue-tsc 管类型**。
 `eslint-config-prettier` 已把 ESLint 的格式类规则关掉，所以两者不会互相打架。
+
+> 前端测试只覆盖**纯逻辑**：`api/http.ts` 的 401 单飞续期、`stores/auth` 的会话恢复、
+> `api/user` 的导出类型校验。组件渲染没有测 —— 那属于 E2E 的范畴，用 jsdom 硬凑
+> 组件测试收益很低（测的是「我写的 mock 对不对」）。
 
 > **端口固定为 3000，不要改回 Vite 默认的 5173。** 本机 Hyper-V 预留了
 > 4990–5188 端口段，5173/5174 都在其中，绑定会报 `listen EACCES`。
@@ -717,6 +724,7 @@ username 有唯一索引，两边都能用上索引。
 | 后端 Java 代码 | `mvn -q compile`；涉及逻辑或 SQL 时再跑 `mvn test` |
 | 后端 pom.xml / 依赖 | `mvn -DskipTests package`（依赖解析问题只有打包才会暴露） |
 | 前端 TS / Vue | `cd frontend; pnpm type-check` |
+| 前端逻辑（拦截器 / store / api 封装） | `cd frontend; pnpm test` |
 | 前端任何改动 | `cd frontend; pnpm lint` 与 `pnpm format:check`（CI 会跑，本地先跑省一轮） |
 | 前端构建配置（vite.config） | `pnpm build` 并**核对产物体积**，见第 5 节的按需引入约定 |
 | 数据库结构（`db/migration/V*.sql`） | 起一次应用看 `flyway_schema_history`；空库与已有库两种场景都要过 |
