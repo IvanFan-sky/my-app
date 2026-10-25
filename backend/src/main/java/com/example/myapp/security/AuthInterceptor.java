@@ -112,7 +112,7 @@ public class AuthInterceptor implements HandlerInterceptor {
     /**
      * 写 HTTP 401 + 统一响应体，并终止后续处理。
      *
-     * <p>具体拼接交给 {@link AuthResponses}：AdminOnlyInterceptor 也要写同样的结构，
+     * <p>具体拼接交给 {@link AuthResponses}：RoleInterceptor 也要写同样的结构，
      * 抽到一处才不会出现「两个拦截器返回的 JSON 长得不一样」。
      */
     private boolean reject(HttpServletResponse response, String message) throws IOException {

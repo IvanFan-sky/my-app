@@ -50,7 +50,7 @@ const router = createRouter({
           name: 'users',
           component: () => import('@/views/UsersView.vue'),
           // requiresAdmin：非管理员直接进不去。这只是体验层拦截，
-          // 后端 AdminOnlyInterceptor 才是真正的权限边界。
+          // 后端 RoleInterceptor 才是真正的权限边界。
           meta: { title: '用户管理', requiresAdmin: true },
         },
         {

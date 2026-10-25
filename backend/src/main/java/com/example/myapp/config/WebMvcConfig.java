@@ -29,7 +29,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         // 顺序很重要：先鉴权（写入 CurrentUser），再授权（读 CurrentUser 判角色）。
-        // 反过来 AdminOnlyInterceptor 会读不到用户，把管理员也拦下。
+        // 反过来 RoleInterceptor 会读不到用户，把管理员也拦下。
         registry.addInterceptor(authInterceptor)
                 // 默认放行静态资源一类，但本项目是前后端分离，后端不提供页面；
                 // 明确写成 /api/** 更清楚：只保护接口，将来加了 actuator 之类也不会被误拦。

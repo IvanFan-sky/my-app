@@ -26,7 +26,7 @@ const auth = useAuthStore()
  * 主菜单。name 与路由 name 必须一致，否则选中态匹配不上。
  *
  * <p>requiresAdmin 的项对普通用户**不显示**：留着让他点进去吃 403 只是徒增困惑。
- * 这只是界面层的隐藏，后端 AdminOnlyInterceptor 才是真正的权限边界。
+ * 这只是界面层的隐藏，后端 RoleInterceptor 才是真正的权限边界。
  */
 const NAV_ITEMS = [
   { name: 'dashboard', label: '工作台', icon: 'dashboard' as const, requiresAdmin: false },

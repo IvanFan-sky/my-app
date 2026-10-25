@@ -21,7 +21,7 @@ public record CurrentUser(Long id, String username, String role) {
      * 存 HttpServletRequest attribute 里的 key。
      *
      * <p>包级可见即可：写入方是 {@link AuthInterceptor}，读取方是
-     * {@link CurrentUserArgumentResolver} 与 {@link AdminOnlyInterceptor}，
+     * {@link CurrentUserArgumentResolver} 与 {@link RoleInterceptor}，
      * 都在本包内，外界不该依赖这个字符串。
      */
     static final String ATTRIBUTE_NAME = "my-app.current-user";

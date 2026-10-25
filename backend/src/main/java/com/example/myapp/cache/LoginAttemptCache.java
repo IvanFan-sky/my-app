@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit;
  * </ul>
  *
  * <p><b>已知取舍：按用户名锁定意味着攻击者可以故意输错来锁死别人的账号（DoS）。</b>
- * 缓解办法是「锁定时间短（默认 15 分钟）+ 到期自动解锁 + 登录成功清零」，
+ * 缓解办法是「锁定时间短（默认 3 分钟）+ 到期自动解锁 + 登录成功清零」，
  * 并且**不会因为锁定而延长到永久**。面向公网的产品建议再叠加
  * IP+用户名双维度计数或验证码；本项目按「管理后台、内网/小规模」定位先做到这一步。
  *
@@ -46,7 +46,7 @@ public class LoginAttemptCache {
 
     public LoginAttemptCache(StringRedisTemplate redis,
                              @Value("${app.security.login.max-attempts:5}") int maxAttempts,
-                             @Value("${app.security.login.lock-minutes:15}") long lockMinutes) {
+                             @Value("${app.security.login.lock-minutes:3}") long lockMinutes) {
         this.redis = redis;
         this.maxAttempts = maxAttempts;
         this.lockMinutes = lockMinutes;

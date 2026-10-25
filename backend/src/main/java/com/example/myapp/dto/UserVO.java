@@ -17,7 +17,7 @@ import java.time.LocalDateTime;
  * <p>{@code role} 是**有意暴露**的：前端要靠它隐藏「用户管理」菜单与路由，
  * 否则普通用户点进去必然拿到 403，体验很困惑。
  * 注意前端拿到 role 只是**界面控制**，真正的权限判定永远在后端
- * （见 AdminOnlyInterceptor），前端隐藏菜单不等于安全。
+ * （见 RoleInterceptor），前端隐藏菜单不等于安全。
  */
 @Data
 @NoArgsConstructor

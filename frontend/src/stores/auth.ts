@@ -56,7 +56,7 @@ export const useAuthStore = defineStore('auth', () => {
    *
    * <p>**只用于界面控制**（隐藏菜单、路由拦截），不是安全边界 ——
    * 用户可以改 localStorage 把自己伪装成管理员，但后端
-   * AdminOnlyInterceptor 会用令牌里的角色再判一次，伪造无效。
+   * RoleInterceptor 会用令牌里的角色再判一次，伪造无效。
    * 前端做这一层只是为了不让普通用户点进必然 403 的页面。
    */
   const isAdmin = computed(() => user.value?.role === ROLE_ADMIN)
