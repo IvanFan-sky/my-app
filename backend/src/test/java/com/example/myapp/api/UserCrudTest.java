@@ -75,6 +75,33 @@ class UserCrudTest extends ApiTestSupport {
     }
 
     @Test
+    @DisplayName("一次修改同时改密码与角色，token_version 只 +1")
+    void updateManagedBumpsVersionOnce() throws Exception {
+        String username = newUsername();
+        long id = createUser(username, TEST_PASSWORD, UserRole.USER);
+        String token = adminToken();
+
+        Integer before = jdbcTemplate.queryForObject(
+                "SELECT token_version FROM sys_user WHERE id = ?", Integer.class, id);
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("username", username);
+        body.put("password", "brandNew123");
+        body.put("role", UserRole.ADMIN);
+        assertStatus(putJson("/api/users/" + id, token, body), 200, 0);
+
+        Integer after = jdbcTemplate.queryForObject(
+                "SELECT token_version FROM sys_user WHERE id = ?", Integer.class, id);
+        /*
+         * 拆成两条 UPDATE（改密一条、改角色一条）时，两条都会自增，版本号跳 2。
+         * 语义上「一次操作作废一次令牌」就够了，跳 2 会让版本号失去可解释性。
+         */
+        assertThat(after)
+                .as("改密 + 改角色应只自增一次")
+                .isEqualTo(before + 1);
+    }
+
+    @Test
     @DisplayName("分页参数越界返回 4000，边界值 100 可以通过")
     void pagingRejectsOversizedPage() throws Exception {
         String token = adminToken();

@@ -80,6 +80,23 @@ public interface UserService extends IService<User> {
                            String passwordHash);
 
     /**
+     * 管理员维护用户：一次 UPDATE 写完全部可编辑字段，并按需作废旧令牌。
+     *
+     * <p><b>为什么不直接用 {@link #overwriteEditable} 再补一次改角色</b>：
+     * 那样「同时改密码和角色」会走两条 UPDATE，密码那条把 token_version +1、
+     * 角色那条再 +1，一次操作版本号跳了 2。不影响正确性（旧令牌照样全失效），
+     * 但版本号的语义变得无法解释 —— 将来若有人拿它做「改过几次密码」的依据就会读到错值。
+     *
+     * <p>这里合并成一条语句，并且**只在敏感字段真的变化时** +1：
+     * 只改昵称不该把人踢下线。
+     *
+     * @param role         新角色；<b>null 表示不改</b>（与 nickname 等「null 即清空」相反）
+     * @param passwordHash 已编码的密码哈希；null 表示不改密码
+     */
+    void updateManaged(Long id, String nickname, String email, String bio, Integer age,
+                       String passwordHash, String role);
+
+    /**
      * 把用户的令牌版本号 +1，使其**所有已签发的令牌立即失效**。
      *
      * <p>用在哪：改角色（权限变了，旧令牌里的角色断言就过时了）、

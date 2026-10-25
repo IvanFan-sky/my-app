@@ -140,6 +140,34 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     @Override
+    public void updateManaged(Long id, String nickname, String email, String bio, Integer age,
+                              String passwordHash, String role) {
+        LambdaUpdateWrapper<User> wrapper = Wrappers.<User>lambdaUpdate()
+                .eq(User::getId, id)
+                .set(User::getNickname, nickname)
+                .set(User::getEmail, email)
+                .set(User::getBio, bio)
+                .set(User::getAge, age);
+
+        // 只有「密码」或「角色」真的变了才作废旧令牌。
+        // 合并成一个标记而不是各写一次自增：两条 SET 都带自增会让版本号一次跳 2。
+        boolean credentialsChanged = false;
+        if (passwordHash != null) {
+            wrapper.set(User::getPasswordHash, passwordHash);
+            credentialsChanged = true;
+        }
+        if (role != null) {
+            wrapper.set(User::getRole, role);
+            credentialsChanged = true;
+        }
+        if (credentialsChanged) {
+            // SQL 自增而不是「读出来 +1 写回去」：并发改密时后者会丢更新
+            wrapper.setSql("token_version = token_version + 1");
+        }
+        update(wrapper);
+    }
+
+    @Override
     public void bumpTokenVersion(Long id) {
         if (id == null) {
             return;

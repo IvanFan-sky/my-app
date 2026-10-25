@@ -1,6 +1,5 @@
 package com.example.myapp.controller;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.myapp.cache.UserCache;
 import com.example.myapp.common.ApiResponse;
@@ -162,43 +161,45 @@ public class UserController {
             throw new BizException(ErrorCode.NOT_FOUND, "用户不存在: " + id);
         }
 
-        // 先记下库里的原始角色。下面会给 user.setRole(...) 赋新值，
-        // 若等到那时再比较「新旧是否相同」就永远相等，版本号也就不会被提升。
+        // 原始角色：审计要记「旧 -> 新」，存一份再改
         String previousRole = user.getRole();
 
-        // 角色：未传表示不改；传了必须是白名单内的值
+        /*
+         * 角色：未传表示不改；传了必须是白名单内的值。
+         *
+         * 值没变时**不写这一列**，也不作废旧令牌 —— 管理员点一次「保存」
+         * 不该把对方所有设备踢下线。所以这里算出「确实要改的新角色」，
+         * 没变就留 null 交给 updateManaged 当作「不改」。
+         */
+        String newRole = null;
         if (StringUtils.hasText(form.getRole())) {
             // 不允许改自己的角色。否则唯一的管理员把自己降级后，
             // 就再没有任何账号能进用户管理了（只能去数据库里手动修）。
             if (currentUser != null && currentUser.id().equals(id)) {
                 throw new BizException(ErrorCode.PARAM_INVALID, "不能修改自己的角色");
             }
-            user.setRole(parseRole(form.getRole(), user.getRole()));
+            String parsed = parseRole(form.getRole(), previousRole);
+            if (!parsed.equals(previousRole)) {
+                newRole = parsed;
+            }
         }
 
-        // 用 overwriteEditable 而不是 updateById：后者会把 null 字段排除在 SET 之外，
-        // 导致管理员「清空邮箱/昵称」时实际什么都没改（MyBatis-Plus 的 NOT_NULL 策略）
+        /*
+         * 一次 UPDATE 写完：可编辑字段 + 密码 + 角色，版本号最多 +1。
+         *
+         * 不能用 updateById（NOT_NULL 策略会跳过 null，导致「清空邮箱」变成「不改邮箱」）；
+         * 也不能拆成「overwriteEditable + 改角色」两条 —— 那会让同时改密码和角色时
+         * token_version 一次跳 2。
+         */
         String hash = userService.encodePassword(form.getPassword());
-        userService.overwriteEditable(id,
+        userService.updateManaged(id,
                 StringUtils.hasText(form.getNickname()) ? form.getNickname().trim() : null,
                 StringUtils.hasText(form.getEmail()) ? form.getEmail().trim() : null,
                 StringUtils.hasText(form.getBio()) ? form.getBio().trim() : null,
                 form.getAge(),
-                hash);
+                hash,
+                newRole);
 
-        // 角色单独更新：它的语义是「不传就不改」，与上面「不传就清空」正好相反，
-        // 混在同一个方法里会让调用者分不清，所以显式分开
-        if (StringUtils.hasText(form.getRole())) {
-            boolean roleChanged = !user.getRole().equals(previousRole);
-            userService.update(Wrappers.<User>lambdaUpdate()
-                    .eq(User::getId, id)
-                    .set(User::getRole, user.getRole()));
-            if (roleChanged) {
-                // 角色变了，旧令牌里那份权限断言就过时了（比如从 ADMIN 降成 USER，
-                // 但令牌里仍是 ADMIN 被缓存的角色拦不住）。作废它的全部令牌强制重登。
-                userService.bumpTokenVersion(id);
-            }
-        }
         // 必须先失效再回源，否则下一次读会拿到旧缓存
         userCache.evict(id);
         User updated = userService.getById(id);
