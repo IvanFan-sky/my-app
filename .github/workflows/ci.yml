@@ -65,7 +65,8 @@ jobs:
           java-version: '21'
           cache: maven
 
-      - name: 跑测试（Flyway 会自动建表）
+      # verify 而不是 test：多出来的正是 jacoco 的覆盖率门槛校验
+      - name: 跑测试与覆盖率门槛校验（Flyway 会自动建表）
         working-directory: backend
         env:
           # 注意优先级：环境变量 > application-test.yml。

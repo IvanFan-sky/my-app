@@ -97,6 +97,7 @@ Test-NetConnection 127.0.0.1 -Port 6379
 mvn -q compile                 # 只编译，最快的语法检查
 mvn -DskipTests package        # 打包，跳过测试
 mvn test                       # 跑测试（需要 MySQL + Redis 可用；测试库 my_app_test 会自动创建）
+mvn verify                     # 测试 + 覆盖率门槛校验（CI 跑的就是这个）
 mvn spring-boot:run            # 启动服务，默认 8080
 mvn -U ...                     # 强制重新下载依赖（依赖疑似损坏时用）
 ```
@@ -731,7 +732,14 @@ username 有唯一索引，两边都能用上索引。
 | API 契约（路径/字段/错误码） | 同步更新后端 DTO、前端 `src/api/`、以及本文件的接口约定 |
 | 权限相关（`@RequireRole`） | `mvn test`，`PermissionTest` 必须全过 —— 权限回归不会报错，只会静默越权 |
 | 新增/修改写操作 | `AuditLogTest` 覆盖：每个写操作都要留下审计记录，且 detail 不含敏感值 |
-| 任何改动 | 推上去看 CI（`.github/workflows/ci.yml`）：后端测试 + 前端 type-check/build |
+| 任何改动 | 推上去看 CI（`.github/workflows/ci.yml`）：后端测试 + 前端 type-check/test/build |
+
+> **覆盖率门槛**：`mvn verify` 会校验指令覆盖率 ≥ 85%、分支覆盖率 ≥ 70%
+> （见 pom 的 `jacoco.instruction.minimum` / `jacoco.branch.minimum`）。
+> 它绑在 `verify` 而不是 `test`，是因为本地常只跑单个测试类
+> （`mvn test -Dtest=UserCrudTest`），绑 `test` 会让这种正常用法直接红。
+> **门槛降下来等于没门槛**：覆盖率跌了应该补测试，而不是调低属性值；
+> 确实要调，必须在提交信息里写清理由。
 
 ### 硬性约束
 

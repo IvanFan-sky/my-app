@@ -25,6 +25,15 @@
              0.12.x 是当前稳定线（0.11 及更早的 API 与之不兼容，升级时注意 setSubject 等写法变化）。 -->
         <jjwt.version>0.12.5</jjwt.version>
 
+        <!-- JaCoCo 覆盖率门槛。做成属性是为了能在命令行临时覆盖
+             （例如 -Djacoco.instruction.minimum=0.99 验证门槛本身是否生效），
+             而不是让人去改 pom 试。
+             取值 = 当前实测 - 1.5 个百分点：留一点余量给正常改动，
+             又不至于把「新加一个没测过的大类」这种真跌漏过去。 -->
+        <jacoco.version>0.8.12</jacoco.version>
+        <jacoco.instruction.minimum>0.85</jacoco.instruction.minimum>
+        <jacoco.branch.minimum>0.70</jacoco.branch.minimum>
+
     </properties>
 
     <dependencies>
@@ -179,7 +188,7 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.12</version>
+                <version>${jacoco.version}</version>
                 <executions>
                     <execution>
                         <id>prepare-agent</id>
@@ -193,6 +202,40 @@
                         <goals>
                             <goal>report</goal>
                         </goals>
+                    </execution>
+
+                    <!-- 覆盖率门槛：低于阈值就让构建失败。
+                         为什么绑 verify 而不是 test：本地经常只跑单个测试类
+                         （mvn test -Dtest=UserCrudTest），覆盖率必然很低，
+                         绑 test 会让这种正常用法直接红。verify 是「准备交付」
+                         的节点，CI 跑的也是它。
+                         没设 per-class 规则：DTO / 配置类天然覆盖率低，
+                         逐个卡会逼人为 getter 写测试，反而稀释真正的断言。 -->
+                    <execution>
+                        <id>check-coverage</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>INSTRUCTION</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>${jacoco.instruction.minimum}</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>${jacoco.branch.minimum}</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
