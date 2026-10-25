@@ -11,6 +11,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "type-check": "vue-tsc --noEmit",
+    "size-check": "node scripts/check-bundle-size.mjs",
     "lint": "eslint . --cache",
     "lint:fix": "eslint . --cache --fix",
     "format": "prettier --write .",

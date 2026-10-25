@@ -80,8 +80,9 @@ export default [
   },
 
   {
-    // 配置类文件跑在 Node 环境里，不是浏览器
-    files: ['*.config.{js,ts}', 'vite.config.ts', 'eslint.config.js'],
+    // 配置类文件与 scripts/ 下的构建脚本跑在 Node 环境里，不是浏览器。
+    // 漏掉 scripts/ 会让 process / console 被报成 no-undef —— 那是环境没声明，不是代码有错
+    files: ['*.config.{js,ts}', 'vite.config.ts', 'eslint.config.js', 'scripts/**/*.{js,mjs}'],
     languageOptions: {
       globals: { ...globals.node },
     },

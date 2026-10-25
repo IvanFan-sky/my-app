@@ -270,7 +270,9 @@ frontend/src/
 >    `pnpm build` 先跑 `vue-tsc`，声明文件不在时类型检查会直接失败。
 >    它们由插件生成，已在 `.prettierignore` 里排除。
 >
-> 改完构建配置**必须核对产物体积**（当前基线：JS 约 580 KB / CSS 约 149 KB / dist 约 0.71 MB）。
+> 改完构建配置**必须核对产物体积**：跑 `pnpm size-check`（读 `dist/assets` 实际大小，
+> 超阈值直接失败并提示排查方向；CI 构建后也会跑这一步）。
+> 当前基线：JS 约 593 KB / CSS 约 151 KB / dist 约 0.73 MB，最大 chunk 约 246 KB。
 > 体积突然变大通常就是上面第 1 条又被改回去了。
 >
 > **颜色覆盖顺序**：`main.ts` 先引 `element-plus/theme-chalk/base.css`（`:root` 上的 `--el-*` 默认值），

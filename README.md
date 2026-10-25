@@ -125,7 +125,8 @@ pnpm build         # 类型检查 + 生产构建
 根目录有 `.editorconfig`，IDE 会自动套用缩进与换行约定。
 
 **这是按需引入的产物基线**（Element Plus 只按实际用到的组件打包）：
-JS 约 580 KB / CSS 约 149 KB / dist 约 0.71 MB。改造前是 1.47 MB（单个 1.1 MB 的 chunk）。
+JS 约 593 KB / CSS 约 151 KB / dist 约 0.73 MB。改造前是 1.47 MB（单个 1.1 MB 的 chunk）。
+`pnpm size-check` 会读 `dist/assets` 的实际大小并在超阈值时失败，CI 构建后也会跑它；
 若某次改构建配置后体积明显变大，多半是 `manualChunks` 又把整个 element-plus 强制分进去了
 （细节见 AGENTS.md 第 5 节）。
 
