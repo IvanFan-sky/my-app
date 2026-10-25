@@ -7,6 +7,9 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.Collection;
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -109,8 +112,33 @@ public class UserCache {
         }
     }
 
-    /** 缓存命中率（0~1）。总请求数为 0 时返回 0，避免除零 */
-    public double hitRate() {
+    /**
+     * 批量失效。
+     *
+     * <p>批量删除场景用：逐条 {@code evict} 会变成 N 次 Redis 往返，
+     * 上限 200 条时就是 200 次网络调用。这里合并成一次 {@code DEL key1 key2 ...}。
+     *
+     * <p>与单条 {@link #evict} 一样容忍 Redis 故障：删失败只记 WARN，
+     * 由 TTL 兜底（最坏情况是脏 10 分钟，比让整个删除操作失败要好）。
+     */
+    public void evictAll(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+        try {
+            List<String> keys = ids.stream()
+                    .filter(Objects::nonNull)
+                    .map(UserCache::key)
+                    .toList();
+            if (!keys.isEmpty()) {
+                redisTemplate.delete(keys);
+            }
+        } catch (Exception e) {
+            log.warn("批量失效用户缓存失败 size={} 原因={}", ids.size(), e.getClass().getSimpleName());
+        }
+    }
+
+    /** 缓存命中率（0~1）。总请求数为 0 时返回 0，避免除零 */    public double hitRate() {
         long h = hits.get();
         long m = misses.get();
         long total = h + m;

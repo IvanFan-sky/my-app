@@ -1,5 +1,6 @@
 package com.example.myapp.controller;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.myapp.cache.UserCache;
 import com.example.myapp.common.ApiResponse;
@@ -282,14 +283,20 @@ public class UserController {
             throw new BizException(ErrorCode.PARAM_INVALID, "不能删除自己的账号，请从选择中移除");
         }
 
-        // 先查出真实存在的行：一是为了审计能记下用户名，二是避免对不存在的 id 白忙
-        List<User> targets = userService.listByIds(ids);
-        for (User target : targets) {
-            userService.removeById(target.getId());
-            userCache.evict(target.getId());
-        }
+        // 先查出真实存在的行：一是为了审计能记下用户名，二是避免对不存在的 id 白忙。
+        // 只取 id 与 username 两列 —— 把整行查出来（含 password_hash）纯属浪费
+        List<User> targets = userService.list(Wrappers.<User>lambdaQuery()
+                .select(User::getId, User::getUsername)
+                .in(User::getId, ids));
 
         int deleted = targets.size();
+        if (deleted > 0) {
+            List<Long> targetIds = targets.stream().map(User::getId).toList();
+            // 一条 UPDATE ... WHERE id IN (...)（逻辑删除即 SET deleted = 1），
+            // 而不是 N 次 removeById；缓存同理，合并成一次 DEL
+            userService.removeByIds(targetIds);
+            userCache.evictAll(targetIds);
+        }
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("requested", ids.size());
         detail.put("deleted", deleted);
