@@ -28,6 +28,7 @@ export const useSystemStore = defineStore('system', () => {
 
   const backendOk = ref<boolean | null>(null)
   const redisStatus = ref<string>('—')
+  const mysqlStatus = ref<string>('—')
   const stats = ref<UserStats | null>(null)
   const lastLoadedAt = ref(0)
   const lastError = ref<string | null>(null)
@@ -37,6 +38,8 @@ export const useSystemStore = defineStore('system', () => {
   let inflight: Promise<void> | null = null
 
   const redisOk = computed(() => redisStatus.value === 'pong')
+  /** MySQL 同样由后端真实探测（SELECT 1），不再是「无独立探测接口」 */
+  const mysqlOk = computed(() => mysqlStatus.value === 'pong')
 
   /** 数据是否是新鲜缓存（界面上可以据此显示"xx 秒前更新"） */
   const isFresh = computed(() => Date.now() - lastLoadedAt.value < CACHE_TTL_MS)
@@ -55,9 +58,11 @@ export const useSystemStore = defineStore('system', () => {
       if (health) {
         backendOk.value = true
         redisStatus.value = String(health.redis ?? 'unknown')
+        mysqlStatus.value = String(health.mysql ?? 'unknown')
       } else {
         backendOk.value = false
         redisStatus.value = '—'
+        mysqlStatus.value = '—'
       }
 
       stats.value = userStats
@@ -97,6 +102,7 @@ export const useSystemStore = defineStore('system', () => {
   function reset() {
     backendOk.value = null
     redisStatus.value = '—'
+    mysqlStatus.value = '—'
     stats.value = null
     lastLoadedAt.value = 0
     lastError.value = null
@@ -107,6 +113,8 @@ export const useSystemStore = defineStore('system', () => {
     backendOk,
     redisStatus,
     redisOk,
+    mysqlStatus,
+    mysqlOk,
     stats,
     loading,
     lastLoadedAt,

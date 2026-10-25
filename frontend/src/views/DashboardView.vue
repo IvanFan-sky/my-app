@@ -31,6 +31,7 @@ const recent = ref<User[]>([])
 const loadingRecent = ref(false)
 const backendOk = computed(() => system.backendOk)
 const redisOk = computed(() => system.redisOk)
+const mysqlOk = computed(() => system.mysqlOk)
 
 /** 按当前时间给出问候语，比固定「欢迎」更有生活感 */
 const greeting = computed(() => {
@@ -206,12 +207,24 @@ onMounted(refreshAll)
             </span>
           </li>
           <li class="status-item">
+            <span class="status-name">MySQL 数据库</span>
+            <span
+              class="status-pill"
+              :class="backendOk === null ? 'is-unknown' : mysqlOk ? 'is-ok' : 'is-bad'"
+            >
+              <span class="status-dot" aria-hidden="true" />
+              {{ backendOk === null ? '检测中' : mysqlOk ? '正常' : '不可用' }}
+            </span>
+          </li>
+          <li class="status-item">
             <span class="status-name">登录方式</span>
             <span class="status-plain">JWT（Bearer）</span>
           </li>
         </ul>
 
-        <p class="status-note">Redis 不可用时系统仍可正常工作，缓存会自动降级为直接查库。</p>
+        <p class="status-note">
+          Redis 不可用时系统会自动降级为直接查库；MySQL 不可用时所有接口都会失败。
+        </p>
       </el-card>
     </div>
   </div>

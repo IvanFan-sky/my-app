@@ -19,6 +19,7 @@ const backendOk = computed(() => system.backendOk)
 const stats = computed(() => system.stats)
 
 const redisOk = computed(() => system.redisOk)
+const mysqlOk = computed(() => system.mysqlOk)
 
 const cacheRate = computed(() => {
   if (!stats.value) return '—'
@@ -72,7 +73,16 @@ onMounted(() => system.load())
           </div>
           <div class="kv-row">
             <dt>数据库</dt>
-            <dd class="muted">MySQL 8.4（由后端连接池管理，无独立探测接口）</dd>
+            <dd>
+              <span
+                class="pill"
+                :class="backendOk === null ? 'is-unknown' : mysqlOk ? 'is-ok' : 'is-bad'"
+              >
+                <span class="dot" aria-hidden="true" />
+                {{ backendOk === null ? '检测中' : mysqlOk ? '正常' : '不可用' }}
+              </span>
+              <span class="muted">MySQL 8.4（后端 SELECT 1 真实探测）</span>
+            </dd>
           </div>
         </dl>
       </el-card>
